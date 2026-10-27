@@ -1,5 +1,5 @@
 *.local.md
-ref
-node_modules
-lib
-coverage
+/ref
+/node_modules
+/lib
+/coverage
