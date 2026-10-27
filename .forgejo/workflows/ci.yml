@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    runs-on: nixos-server
+    timeout-minutes: 30
+    env:
+      NIX_CONFIG: |
+        tarball-ttl = 2592000
+      npm_config_registry: https://registry.npmmirror.com
+      npm_config_audit: "false"
+      npm_config_fund: "false"
+    steps:
+      - name: Checkout
+        env:
+          CI_REPOSITORY_VAR: ${{ vars.CI_REPOSITORY }}
+          CI_SHA: ${{ github.sha }}
+          CI_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -eu
+          askpass="$(mktemp)"
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'ASKPASS'
+          #!/bin/sh
+          case "$1" in
+            Username*) printf '%s' "${CI_TOKEN:-}" ;;
+            Password*) printf '' ;;
+          esac
+          ASKPASS
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
+          repo="${CI_REPOSITORY:-${CI_REPOSITORY_VAR:-${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git}}"
+          git clone "$repo" source
+          git -C source fetch origin "$CI_SHA"
+          git -C source -c advice.detachedHead=false checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$CI_SHA"
+          test -n "$CI_TOKEN"
+          ! grep -qF "$CI_TOKEN" source/.git/config
+
+      - name: npm ci
+        working-directory: source
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c 'npm ci'
+
+      - name: typecheck
+        working-directory: source
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c 'npm run typecheck'
+
+      - name: lint
+        working-directory: source
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c 'npm run lint'
+
+      - name: test
+        working-directory: source
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c 'npm run test'
+
+      - name: build
+        working-directory: source
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c 'npm run build --if-present'
