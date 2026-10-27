@@ -1,0 +1,68 @@
+# 本包接管 web-app 的 UI 出口：关掉 47 个官方行后，由 pi-ui 自绘整页。
+# 顺序即依赖淘汰顺序：先关提供者，再关依赖它们的级联行。
+
+# ── 接管 root（ui-layout 占 root 并提供 layout，我们顶替）
+- { id: ui-layout, disabled: true } # 占 root；由 pi-ui 接管
+
+# ── 侧栏系（缺 layout / sidebarRight / sidebarRightTabs）
+- { id: ui-sidebar, disabled: true } # 缺 layout
+- { id: ui-sidebar-right, disabled: true } # 缺 layout、sidebarRight
+- { id: ui-sidebar-documentpreview, disabled: true } # 缺 sidebarRightTabs
+- { id: ui-sidebar-browser, disabled: true } # 缺 sidebarRightTabs
+- { id: ui-sidebar-terminal, disabled: true } # 缺 sidebarRightTabs
+- { id: ui-sidebar-files, disabled: true } # 缺 sidebarRightTabs
+
+# ── 会话系（提供者本行关闭）
+- { id: ui-workspace, disabled: true } # 缺 layout；且是 uiWorkspace 的提供者
+- { id: ui-conversation, disabled: true } # 缺 uiWorkspace；且是 uiConversation 的提供者
+- { id: ui-chat, disabled: true } # 缺 uiWorkspace；由 pi-ui 自绘
+
+# ── 级联（缺 sidebarRight / uiWorkspace / uiConversation）
+- { id: ui-deliverables, disabled: true } # 缺 uiConversation
+- { id: ui-plan, disabled: true } # 缺 uiConversation
+- { id: ui-skill, disabled: true } # 缺 uiConversation
+- { id: ui-reference, disabled: true } # 缺 uiConversation
+- { id: ui-schedule, disabled: true } # 缺 uiConversation
+- { id: ui-subagent, disabled: true } # 缺 uiConversation
+- { id: ui-workflow-run, disabled: true } # 缺 uiConversation
+- { id: entry-customization, disabled: true } # 缺 uiWorkspace
+- { id: ui-secret-mask, disabled: true } # 缺 uiConversation
+- { id: ui-goal, disabled: true } # 缺 uiConversation
+- { id: ui-trajectory, disabled: true } # 缺 uiConversation
+- { id: message-quotes, disabled: true } # client 半 inject uiConversation；由 pi-ui 自绘
+
+# ── 官方 UI 出口（我们自绘）
+- { id: ui-tool, disabled: true } # 自绘工具输出
+- { id: ui-brand-official, disabled: true } # 自绘品牌区
+- { id: ui-attachment, disabled: true } # 自绘附件
+- { id: ui-shortcuts, disabled: true } # 自绘快捷键
+- { id: ui-jobs, disabled: true } # 自绘任务面板
+- { id: ui-cordis, disabled: true } # 自绘服务面板
+- { id: ui-deepseek-model-label-1017, disabled: true } # 自绘模型标签
+- { id: ui-message-feedback, disabled: true } # 自绘反馈入口
+- { id: ui-permission, disabled: true } # 自绘权限交互
+- { id: ui-agent-preset, disabled: true } # 自绘预设选择
+- { id: ui-plugin-manager, disabled: true } # 缺 layout；自绘插件管理
+- { id: ui-open-in-app, disabled: true } # 缺 layout；自绘外部打开
+- { id: directory-picker, disabled: true } # 动态挂载的 client 面 inject uiWorkspace，会 pending；改用最近目录 + 手输路径
+
+# ── 人工交互（留着会抢先消费 waterfall，由 pi-ui 接管）
+- { id: ui-approval, disabled: true } # 抢先消费 waterfall
+- { id: ui-user-questions, disabled: true } # 抢先消费 waterfall；还缺 uiConversation
+
+# ── 设置页（ui-settings 本身保留：它提供 configForms；各分页由 pi-ui 自建）
+- { id: ui-settings-general, disabled: true } # 自建设置分页
+- { id: ui-settings-models, disabled: true } # 自建设置分页
+- { id: ui-settings-account, disabled: true } # 自建设置分页
+- { id: ui-settings-plugins, disabled: true } # 自建设置分页
+- { id: ui-settings-plugin-inventory, disabled: true } # 自建设置分页
+- { id: ui-settings-session-log, disabled: true } # 自建设置分页
+- { id: ui-settings-shell, disabled: true } # 自建设置分页
+- { id: ui-settings-agent-loop, disabled: true } # 自建设置分页
+- { id: ui-settings-subagent, disabled: true } # 自建设置分页
+- { id: ui-settings-web-search, disabled: true } # 自建设置分页
+
+# ── 插入我们的行（loader id 由包名决定）
+- insert:
+    - id: pi-ui
+      name: '@lllzt/dsh-web-ui'
