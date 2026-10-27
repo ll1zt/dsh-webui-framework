@@ -1,3 +1,5 @@
 *.local.md
 ref
-
+node_modules
+lib
+coverage
