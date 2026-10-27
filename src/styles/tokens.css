@@ -1,0 +1,7 @@
+:root {
+  --dsw-space-unit: 4px;
+  --dsw-radius-md: 6px;
+  --dsw-color-text: #111111;
+  --dsw-color-bg: #ffffff;
+  --dsw-font-sans: system-ui, sans-serif;
+}
