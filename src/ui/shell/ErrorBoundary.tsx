@@ -4,7 +4,8 @@
  * the package's only class components — catching a render error is the one
  * thing hooks cannot do.
  */
-import { Component, Fragment, type ErrorInfo, type ReactNode } from 'react'
+import { Component, type ErrorInfo, type ReactNode } from 'react'
+import type { WebuiTranslate } from '../../client/types.ts'
 
 /** The shell areas a crash can be contained to. */
 export type RegionName = 'sidebar' | 'topbar' | 'main' | 'right' | 'composer' | 'dialogs'
@@ -12,29 +13,21 @@ export type RegionName = 'sidebar' | 'topbar' | 'main' | 'right' | 'composer' | 
 /** Diagnostic prefix of every caught crash. */
 const LOG_PREFIX = '[dsh-web-ui]'
 
-/** Copy seat of the shell; the root registration's `locale` option provides it. */
-type ShellTranslate = (key: string) => string
-
 /** Props of {@link RegionBoundary}. */
 export interface RegionBoundaryProps {
   region: RegionName
   children: ReactNode
-  t?: ShellTranslate | undefined
+  t?: WebuiTranslate | undefined
 }
 
 /** Props of {@link AppErrorBoundary}. */
 interface AppErrorBoundaryProps {
   children: ReactNode
-  t?: ShellTranslate | undefined
+  t?: WebuiTranslate | undefined
 }
 
-interface RegionBoundaryState {
-  error: Error | undefined
-  /** Bumped per retry: the new key remounts the failed subtree from scratch. */
-  attempt: number
-}
-
-interface AppErrorBoundaryState {
+/** State of both boundaries: the caught error, if any. */
+interface BoundaryState {
   error: Error | undefined
 }
 
@@ -45,7 +38,7 @@ interface AppErrorBoundaryState {
  * @param fallback - English text used when there is no seat.
  * @returns the text to show.
  */
-function shellText(t: ShellTranslate | undefined, key: string, fallback: string): string {
+function shellText(t: WebuiTranslate | undefined, key: Parameters<WebuiTranslate>[0], fallback: string): string {
   return t?.(key) ?? fallback
 }
 
@@ -59,11 +52,12 @@ function toError(thrown: unknown): Error {
 }
 
 /**
- * Hand the message and stack to the clipboard. A failure card may never throw
- * for a missing clipboard, so absence and rejection are both ignored.
- * @param error - the caught error.
+ * Hand a caught error's message and stack to the clipboard. A failure card may
+ * never throw for a missing clipboard, so absence and rejection are both ignored.
+ * @param error - the caught error, absent while nothing has crashed.
  */
-function copyErrorText(error: Error): void {
+function copyErrorText(error: Error | undefined): void {
+  if (error === undefined) return
   const text = error.stack === undefined ? error.message : `${error.message}\n${error.stack}`
   void navigator.clipboard?.writeText(text).catch(() => {})
 }
@@ -73,10 +67,10 @@ function copyErrorText(error: Error): void {
  * @param props - the region name, its content, and the copy seat.
  * @returns the region content, or the error card.
  */
-export class RegionBoundary extends Component<RegionBoundaryProps, RegionBoundaryState> {
-  override state: RegionBoundaryState = { error: undefined, attempt: 0 }
+export class RegionBoundary extends Component<RegionBoundaryProps, BoundaryState> {
+  override state: BoundaryState = { error: undefined }
 
-  static getDerivedStateFromError(thrown: unknown): Pick<RegionBoundaryState, 'error'> {
+  static getDerivedStateFromError(thrown: unknown): BoundaryState {
     return { error: toError(thrown) }
   }
 
@@ -85,18 +79,16 @@ export class RegionBoundary extends Component<RegionBoundaryProps, RegionBoundar
   }
 
   private readonly copy = (): void => {
-    const { error } = this.state
-    if (error === undefined) return
-    copyErrorText(error)
+    copyErrorText(this.state.error)
   }
 
   private readonly retry = (): void => {
-    this.setState((state) => ({ error: undefined, attempt: state.attempt + 1 }))
+    this.setState({ error: undefined })
   }
 
   override render(): ReactNode {
-    const { error, attempt } = this.state
-    if (error === undefined) return <Fragment key={attempt}>{this.props.children}</Fragment>
+    const { error } = this.state
+    if (error === undefined) return this.props.children
     const { t } = this.props
     return (
       <div className="webui-error-card" role="alert">
@@ -121,10 +113,10 @@ export class RegionBoundary extends Component<RegionBoundaryProps, RegionBoundar
  * @param props - the page content and the copy seat.
  * @returns the page content, or the whole-page error panel.
  */
-export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorBoundaryState> {
-  override state: AppErrorBoundaryState = { error: undefined }
+export class AppErrorBoundary extends Component<AppErrorBoundaryProps, BoundaryState> {
+  override state: BoundaryState = { error: undefined }
 
-  static getDerivedStateFromError(thrown: unknown): Pick<AppErrorBoundaryState, 'error'> {
+  static getDerivedStateFromError(thrown: unknown): BoundaryState {
     return { error: toError(thrown) }
   }
 
@@ -133,9 +125,7 @@ export class AppErrorBoundary extends Component<AppErrorBoundaryProps, AppErrorB
   }
 
   private readonly copy = (): void => {
-    const { error } = this.state
-    if (error === undefined) return
-    copyErrorText(error)
+    copyErrorText(this.state.error)
   }
 
   private readonly reload = (): void => {
