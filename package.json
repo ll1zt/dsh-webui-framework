@@ -24,6 +24,8 @@
   },
   "scripts": {
     "build": "tsdown && node scripts/verify-bundle.ts lib",
+    "prepack": "npm run build",
+    "pack:check": "node scripts/pack-check.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
