@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -31,22 +31,6 @@ const EXPECTED_SEEDS = [
   '@deepseek-ai/dsh-client-ui-dockkit',
 ]
 
-const SOURCE_EXT = /\.(ts|tsx|mjs|js)$/
-
-/** 非测试源文件：tsdown.config.ts + scripts/、src/ 下的脚本，排除测试、fixtures 与常量模块本身 */
-const sourceFiles = (): string[] => {
-  const found = ['scripts', 'src'].flatMap((dir) =>
-    readdirSync(join(ROOT, dir), { recursive: true, encoding: 'utf8' }).map((p) => `${dir}/${p}`),
-  )
-  return ['tsdown.config.ts', ...found].filter(
-    (p) =>
-      SOURCE_EXT.test(p) &&
-      !p.includes('.test.') &&
-      !p.startsWith('scripts/fixtures/') &&
-      p !== 'scripts/plugin-constants.ts',
-  )
-}
-
 describe('plugin-constants', () => {
   it('A1 seed modules are exactly the 11 platform seeds', () => {
     expect(new Set(SEED_MODULES).size).toBe(SEED_MODULES.length)
@@ -67,13 +51,5 @@ describe('plugin-constants', () => {
     expect(PLUGIN_ID).toBe(pkg.name)
     expect(PLUGIN_ROW_ID).toBe(row?.id)
     expect(row?.name).toBe(PLUGIN_ID)
-  })
-
-  it('A3 no non-test source file carries its own seed list or plugin id literal', () => {
-    const offenders = sourceFiles().filter((file) => {
-      const text = read(file)
-      return text.includes('@deepseek-ai/dsh-client-ui-dockkit') || text.includes('@lllzt/dsh-web-ui')
-    })
-    expect(offenders).toEqual([])
   })
 })

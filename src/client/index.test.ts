@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { ThemeDefinition, ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { createFakeContext } from '../test/fake-ctx.ts'
 import { App } from './entries/App.tsx'
-import { apply } from './index.ts'
+import { apply, inject } from './index.ts'
 
 const LIGHT: ThemeDefinition = { id: 'light', colorScheme: 'light', tokens: { '--bg': '#ffffff', '--text': '#111111' } }
 const DARK: ThemeDefinition = { id: 'dark', colorScheme: 'dark', tokens: { '--bg': '#000000', '--text': '#eeeeee' } }
@@ -95,5 +95,16 @@ describe('client apply theme effect', () => {
     ctx.disposeAll()
     expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
     expect(document.head.querySelectorAll('meta[name="theme-color"]')).toHaveLength(0)
+  })
+})
+
+describe('client inject', () => {
+  it('A3 inject lists only the services apply uses, and apply runs on exactly those', () => {
+    expect(new Set(inject)).toEqual(new Set(['slots', 'locale', 'theme']))
+
+    const ctx = createFakeContext({ theme: { getTheme: () => snapshot() } })
+    expect(() => apply(ctx)).not.toThrow()
+    expect(ctx.slots.entries('root')).toHaveLength(1)
+    ctx.disposeAll()
   })
 })

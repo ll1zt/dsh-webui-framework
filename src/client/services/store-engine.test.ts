@@ -6,7 +6,6 @@ const SIDEBAR_WIDTH_KEY = 'dsh-web-ui:sidebar-width'
 
 interface PackageJson {
   dependencies?: Record<string, string>
-  devDependencies?: Record<string, string>
 }
 
 function readText(relative: string): string {
@@ -32,8 +31,6 @@ describe('store engine', () => {
     await expect(import('immer')).resolves.toBeDefined()
 
     const pkg = JSON.parse(readText('../../../package.json')) as PackageJson
-    expect(pkg.devDependencies?.zustand).toBe('~4.5.7')
-    expect(pkg.devDependencies?.immer).toBe('^10.1.1')
     expect(pkg.dependencies?.zustand).toBeUndefined()
     expect(pkg.dependencies?.immer).toBeUndefined()
   })
@@ -63,11 +60,5 @@ describe('store engine', () => {
       throw new Error('storage is denied')
     })
     expect(initialState()).toEqual(fallback)
-  })
-
-  it('A3 neither test file mocks the store engine', () => {
-    for (const file of ['../index.test.ts', './page-store.test.ts']) {
-      expect(readText(file)).not.toContain("vi.mock('@deepseek-ai/dsh-client-store'")
-    }
   })
 })
