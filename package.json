@@ -5,6 +5,9 @@
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
+  "engines": {
+    "node": ">=24"
+  },
   "exports": {
     ".": {
       "default": "./lib/index.js"
@@ -39,6 +42,7 @@
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
     "check": "npm run typecheck && npm run lint && npm run test",
+    "gate": "npm run check && npm run build && npm run pack:check",
     "format": "prettier --write ."
   },
   "devDependencies": {
