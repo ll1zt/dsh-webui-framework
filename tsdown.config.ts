@@ -1,7 +1,8 @@
 import { readFile, writeFile } from 'node:fs/promises'
-import { basename, dirname, relative, resolve } from 'node:path'
+import { dirname, relative, resolve } from 'node:path'
 import { transform } from 'lightningcss'
 import { defineConfig, type TsdownPlugin, type UserConfig } from 'tsdown'
+import { styleInjectionModule } from './scripts/css-inject.ts'
 
 /** Package root: tsdown runs with it as the working directory, and the CSS virtual ids stay relative to it. */
 const PACKAGE_ROOT = import.meta.dirname
@@ -51,26 +52,6 @@ const FOOTER_HEAD = 'return module.exports;'
 const CSS_VIRTUAL_PREFIX = '\0dsh-css:'
 const CSS_VIRTUAL_SUFFIX = '.mjs'
 
-/**
- * Emit the stylesheet as a module that installs it once. The tag is keyed by the
- * stylesheet it came from, so a second factory call finds the existing tag and
- * leaves the document untouched.
- */
-function styleInjectionModule(fileId: string, css: string): string {
-  const tagId = `${NAME}/${basename(fileId)}`
-  return [
-    `var css = ${JSON.stringify(css)};`,
-    `var tagId = ${JSON.stringify(tagId)};`,
-    `if (typeof document !== 'undefined' && document.querySelector('style[data-plugin-css="' + tagId + '"]') === null) {`,
-    `  var tag = document.createElement('style');`,
-    `  tag.dataset.plugin = ${JSON.stringify(NAME)};`,
-    `  tag.dataset.pluginCss = tagId;`,
-    `  tag.textContent = css;`,
-    `  document.head.appendChild(tag);`,
-    `}`,
-  ].join('\n')
-}
-
 /** `import './x.css'` becomes a side-effect module carrying the minified sheet and its injection. */
 function cssAsInjectedStyle(): TsdownPlugin {
   return {
@@ -90,7 +71,7 @@ function cssAsInjectedStyle(): TsdownPlugin {
       // The virtual id hides the physical sheet from rolldown's watch graph.
       this.addWatchFile(fileId)
       const { code } = transform({ filename: fileId, code: await readFile(fileId), minify: true })
-      return styleInjectionModule(fileId, code.toString())
+      return styleInjectionModule(NAME, relative(PACKAGE_ROOT, fileId), code.toString())
     },
   }
 }
