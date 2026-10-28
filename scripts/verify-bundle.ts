@@ -4,24 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { gzipSync } from 'node:zlib'
 import ts from 'typescript'
-
-/** Id the host's module loader keys this plugin by (02 §8.1). */
-const PLUGIN_ID = '@lllzt/dsh-web-ui'
-
-/** Module-table rows the loader answers; anything else the bundle requires cannot resolve (02 §8.2). */
-const SEED = [
-  'react',
-  'react/jsx-runtime',
-  'react-dom',
-  'react-dom/client',
-  '@deepseek-ai/cordis',
-  'zod',
-  '@tanstack/react-virtual',
-  '@deepseek-ai/dsh-client-store',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-dockkit',
-]
+import { PLUGIN_ID, isSeedModule } from './plugin-constants.ts'
 
 /** 1.5 MiB of gzipped client code is what the shell's boot budget allows (03 §1.5). */
 const DEFAULT_BUDGET_BYTES = 1_572_864
@@ -140,7 +123,7 @@ function analyze(source: string): { violations: BundleViolation[]; requires: str
     const specifier = requiredSpecifier(node)
     if (specifier === undefined) return
     requires.add(specifier)
-    if (!SEED.includes(specifier)) {
+    if (!isSeedModule(specifier)) {
       violations.push({ code: 'foreign-require', detail: `require("${specifier}") is not a seed module` })
     }
   })
@@ -185,7 +168,7 @@ function createSeedRequire(requested: Set<string>): unknown {
       const [specifier] = args
       if (typeof specifier !== 'string') return seeded
       requested.add(specifier)
-      if (!SEED.includes(specifier)) throw new ForeignRequireError(specifier)
+      if (!isSeedModule(specifier)) throw new ForeignRequireError(specifier)
       return seeded
     },
   })
