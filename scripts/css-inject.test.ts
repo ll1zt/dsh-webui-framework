@@ -22,6 +22,7 @@ const pluginStyles = (): HTMLStyleElement[] => [
 describe('styleInjectionModule', () => {
   beforeEach(() => {
     document.head.innerHTML = ''
+    document.body.innerHTML = ''
   })
 
   it('A1 two sheets share one style tag', () => {
@@ -31,6 +32,22 @@ describe('styleInjectionModule', () => {
     expect(tags).toHaveLength(1)
     expect(tags[0]?.textContent).toBe(CSS)
     expect(tags[0]?.getAttribute('data-plugin-css')).toBe(TAGS)
+  })
+
+  it('A1 creates the tag in head even when body already holds one', () => {
+    const bodyTag = document.createElement('style')
+    bodyTag.dataset.plugin = PLUGIN_ID
+    bodyTag.textContent = '.body{color:black}'
+    document.body.appendChild(bodyTag)
+
+    run(styleInjectionModule(PLUGIN_ID, A_FILE, A_CSS), document)
+
+    const headTag = document.head.querySelector<HTMLStyleElement>(`style[data-plugin="${PLUGIN_ID}"]`)
+    expect(headTag).not.toBeNull()
+    expect(headTag).not.toBe(bodyTag)
+    expect(headTag?.textContent).toBe(A_CSS)
+    expect(bodyTag.textContent).toBe('.body{color:black}')
+    expect(bodyTag.hasAttribute('data-plugin-css')).toBe(false)
   })
 
   it('A2 rerunning both sheets leaves the tag unchanged', () => {
