@@ -1,5 +1,6 @@
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { PLUGIN_ID } from './plugin-constants.ts'
 
 /**
  * One real-host smoke for the rc.3 setup: does a running dsh host carry this plugin in its boot
@@ -13,9 +14,6 @@ import { fileURLToPath } from 'node:url'
  *
  * Read-only (GET only). Output never carries the token, a cookie value or the full base URL.
  */
-
-/** The id the host's loader keys this plugin by; the roster entry and the bundle's first line both carry it. */
-const PLUGIN_ID = '@lllzt/dsh-web-ui'
 
 /** The first line of the served bundle: the loader call the build writes. */
 const LOADER_PREFIX = `window.__ModuleLoader__.load({ id: "${PLUGIN_ID}",`

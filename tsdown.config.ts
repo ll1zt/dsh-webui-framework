@@ -3,36 +3,17 @@ import { dirname, relative, resolve } from 'node:path'
 import { transform } from 'lightningcss'
 import { defineConfig, type TsdownPlugin, type UserConfig } from 'tsdown'
 import { styleInjectionModule } from './scripts/css-inject.ts'
+import { PLUGIN_ID, isSeedModule } from './scripts/plugin-constants.ts'
 
 /** Package root: tsdown runs with it as the working directory, and the CSS virtual ids stay relative to it. */
 const PACKAGE_ROOT = import.meta.dirname
-
-/** The loader module-table id, the id stamped into the loader call, and the owner of our injected styles. */
-const NAME = '@lllzt/dsh-web-ui'
-
-/** Module-table rows the host answers for every plugin; every other specifier is inlined (02 §8.2). */
-const SEED = [
-  'react',
-  'react/jsx-runtime',
-  'react-dom',
-  'react-dom/client',
-  '@deepseek-ai/cordis',
-  'zod',
-  '@tanstack/react-virtual',
-  '@deepseek-ai/dsh-client-store',
-  '@deepseek-ai/dsh-client-ui-slots',
-  '@deepseek-ai/dsh-client-ui-primitives',
-  '@deepseek-ai/dsh-client-ui-dockkit',
-]
-
-const isSeed = (specifier: string): boolean => SEED.includes(specifier)
 
 /**
  * The host loads the bundle from a classic <script> tag, so the file body is
  * exactly one `window.__ModuleLoader__.load(...)` call (02 §8.1). These strings
  * are the contract; {@link loaderWrapper} writes them byte-exact.
  */
-const BANNER = `window.__ModuleLoader__.load({ id: ${JSON.stringify(NAME)}, factory: (require) => {`
+const BANNER = `window.__ModuleLoader__.load({ id: ${JSON.stringify(PLUGIN_ID)}, factory: (require) => {`
 const INTRO = 'var module = { exports: {} }; var exports = module.exports;'
 const FOOTER = 'return module.exports; } });'
 
@@ -71,7 +52,7 @@ function cssAsInjectedStyle(): TsdownPlugin {
       // The virtual id hides the physical sheet from rolldown's watch graph.
       this.addWatchFile(fileId)
       const { code } = transform({ filename: fileId, code: await readFile(fileId), minify: true })
-      return styleInjectionModule(NAME, relative(PACKAGE_ROOT, fileId), code.toString())
+      return styleInjectionModule(PLUGIN_ID, relative(PACKAGE_ROOT, fileId), code.toString())
     },
   }
 }
@@ -146,7 +127,7 @@ function shiftMappings(mappings: string, shift: number): string {
  * code, so the plugin's host-side surface is one `apply` export.
  */
 const nodeHalf: UserConfig = {
-  name: `${NAME}/node`,
+  name: `${PLUGIN_ID}/node`,
   entry: { index: 'src/index.ts' },
   outDir: 'lib',
   format: 'esm',
@@ -160,7 +141,7 @@ const nodeHalf: UserConfig = {
  * `clean` stays off because this invocation shares `lib/` with the Node half.
  */
 const clientHalf: UserConfig = {
-  name: `${NAME}/client`,
+  name: `${PLUGIN_ID}/client`,
   entry: { client: 'src/client/index.ts' },
   outDir: 'lib',
   format: 'cjs',
@@ -170,8 +151,8 @@ const clientHalf: UserConfig = {
   // no `sourceMappingURL` comment may follow it.
   sourcemap: 'hidden',
   deps: {
-    neverBundle: isSeed,
-    alwaysBundle: (specifier: string) => !isSeed(specifier),
+    neverBundle: isSeedModule,
+    alwaysBundle: (specifier: string) => !isSeedModule(specifier),
   },
   // tsdown builds a CommonJS output on the node platform, so the browser
   // resolution an inlined dependency needs must be stated here (03 §1.2).
