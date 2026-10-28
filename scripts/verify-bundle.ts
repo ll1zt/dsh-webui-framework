@@ -1,9 +1,9 @@
 import { readFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { runInNewContext } from 'node:vm'
 import { gzipSync } from 'node:zlib'
 import ts from 'typescript'
+import { isInvokedAsScript, messageOf } from './cli-utils.ts'
 import { PLUGIN_ID, isSeedModule } from './plugin-constants.ts'
 
 /** 1.5 MiB of gzipped client code is what the shell's boot budget allows (03 §1.5). */
@@ -56,8 +56,6 @@ class ForeignRequireError extends Error {
   }
 }
 
-const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
-
 /**
  * Parse `source` the way a classic script is parsed: a CommonJS-wrapped bundle
  * is not a module, so module syntax is a violation rather than an input form.
@@ -73,9 +71,12 @@ function walk(node: ts.Node, visit: (node: ts.Node) => void): void {
   })
 }
 
-/** TypeScript keeps parse diagnostics off the public type, but they are the only syntax-error report it gives. */
+/** The syntax errors of an already-parsed file, read through the public API off a one-file program. */
 function parseDiagnostics(file: ts.SourceFile): readonly ts.Diagnostic[] {
-  return (file as unknown as { parseDiagnostics?: readonly ts.Diagnostic[] }).parseDiagnostics ?? []
+  const options: ts.CompilerOptions = { noLib: true, noResolve: true, allowJs: true }
+  const host = ts.createCompilerHost(options)
+  host.getSourceFile = (name) => (name === file.fileName ? file : undefined)
+  return ts.createProgram([file.fileName], options, host).getSyntacticDiagnostics(file)
 }
 
 /** Whether a statement only exists in a module: `import`, `export`, or an export modifier. */
@@ -289,9 +290,7 @@ function renderReport(libDir: string, report: BundleReport): string {
   ].join('\n')
 }
 
-const invokedAsScript = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-
-if (invokedAsScript) {
+if (isInvokedAsScript(process.argv[1], import.meta.url)) {
   const libDir = process.argv[2] ?? 'lib'
   try {
     const report = await verifyBundle(libDir)
