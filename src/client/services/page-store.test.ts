@@ -2,20 +2,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createPageStore } from './page-store.ts'
 
-// The seed store engine imports zustand/vanilla, zustand/middleware, zustand/shallow and immer at module
-// top level, and this package installs none of them, so the real engine cannot load in a unit test.
-vi.mock('@deepseek-ai/dsh-client-store', () => ({
-  defineStore: (spec: { init: () => unknown }) => ({
-    spec,
-    create: () => ({
-      getSnapshot: () => spec.init(),
-      subscribe: () => () => {},
-      clearPersisted: () => {},
-      actions: {},
-    }),
-  }),
-}))
-
 const SIDEBAR_WIDTH_KEY = 'dsh-web-ui:sidebar-width'
 
 function fakeStorage(initial: Record<string, string>, readError?: Error): Storage {

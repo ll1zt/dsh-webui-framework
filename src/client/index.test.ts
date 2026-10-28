@@ -1,23 +1,9 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import type { ThemeDefinition, ThemeSnapshot } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { createFakeContext } from '../test/fake-ctx.ts'
 import { App } from './entries/App.tsx'
 import { apply } from './index.ts'
-
-// The seed store engine imports zustand/vanilla, zustand/middleware, zustand/shallow and immer at module
-// top level, and this package installs none of them, so the real engine cannot load in a unit test.
-vi.mock('@deepseek-ai/dsh-client-store', () => ({
-  defineStore: (spec: { init: () => unknown }) => ({
-    spec,
-    create: () => ({
-      getSnapshot: () => spec.init(),
-      subscribe: () => () => {},
-      clearPersisted: () => {},
-      actions: {},
-    }),
-  }),
-}))
 
 const LIGHT: ThemeDefinition = { id: 'light', colorScheme: 'light', tokens: { '--bg': '#ffffff', '--text': '#111111' } }
 const DARK: ThemeDefinition = { id: 'dark', colorScheme: 'dark', tokens: { '--bg': '#000000', '--text': '#eeeeee' } }
