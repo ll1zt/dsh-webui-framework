@@ -12,10 +12,15 @@ const BAD_REV_URL = 'plugins/??@lllzt/dsh-web-ui/client.js&rev=000000000000'
 const LOADER_LINE = `window.__ModuleLoader__.load({ id: "${PLUGIN_ID}", factory: (require) => {`
 const BUNDLE_OK = `${LOADER_LINE}\n  return { apply() {} }\n} })\n`
 
-/** Route keys are `pathname + search` of the requested URL, so the `??` bundle form stays intact. */
+/**
+ * Route keys are `pathname + search` of the requested URL, so the `??` bundle form stays intact.
+ * A request to another origin is looked up by its absolute href instead.
+ */
 interface Reply {
   status: number
   body?: string
+  location?: string
+  setCookie?: string
 }
 type Routes = Record<string, Reply>
 
@@ -42,6 +47,8 @@ const withRoutes = (overrides: Routes): Routes => ({ ...GOOD_ROUTES, ...override
 interface FakeHostOptions {
   /** Requests without the session cookie get 401, as the real host does. */
   auth?: boolean
+  /** Where the `?token=` 303 points; defaults to `./`. */
+  tokenLocation?: string
 }
 
 interface RecordedRequest {
@@ -63,15 +70,19 @@ const fakeHost = (routes: Routes, options: FakeHostOptions = {}) => {
       return new Response(null, {
         status: 303,
         headers: [
-          ['location', './'],
+          ['location', options.tokenLocation ?? './'],
           ['set-cookie', `${COOKIE}; Max-Age=60; Path=/; HttpOnly`],
         ],
       })
     }
-    if (options.auth === true && cookie !== COOKIE) return new Response(null, { status: 401 })
-    const reply = routes[url.pathname + url.search]
+    const ownOrigin = url.origin === new URL(HOST).origin
+    if (ownOrigin && options.auth === true && cookie !== COOKIE) return new Response(null, { status: 401 })
+    const reply = routes[ownOrigin ? url.pathname + url.search : url.href]
     if (reply === undefined) return new Response(null, { status: 404 })
-    return new Response(reply.body ?? null, { status: reply.status, headers: { 'content-type': 'text/html' } })
+    const headers = new Headers({ 'content-type': 'text/html' })
+    if (reply.location !== undefined) headers.set('location', reply.location)
+    if (reply.setCookie !== undefined) headers.append('set-cookie', reply.setCookie)
+    return new Response(reply.body ?? null, { status: reply.status, headers })
   }
   return { fetchImpl: fetchImpl as typeof fetch, requests }
 }
@@ -162,5 +173,40 @@ describe('checkHost', () => {
     expect(report.problems.some((problem: string) => problem.startsWith('bundle-status:'))).toBe(true)
     expect(text).not.toContain(TOKEN)
     expect(text).not.toContain(COOKIE_VALUE)
+  })
+})
+
+describe('checkHost cookie origin scope', () => {
+  const ELSEWHERE = 'http://elsewhere.test:9090/'
+  const ELSEWHERE_COOKIE = 'elsewhere-session=ELSEWHEREVALUE'
+  const tokenUrl = `${HOST}?token=${TOKEN}`
+  const foreign = (requests: RecordedRequest[]) => requests.filter((request) => request.url.startsWith(ELSEWHERE))
+
+  it('A1 a cross-origin redirect target gets no cookie while same-origin follow-ups keep it', async () => {
+    const hop = `${ELSEWHERE}hop`
+    const routes = withRoutes({ [hop]: { status: 302, location: HOST, setCookie: `${ELSEWHERE_COOKIE}; Path=/` } })
+    const { report, requests } = await runCheck(routes, { auth: true, tokenLocation: hop }, tokenUrl)
+    const sameOrigin = requests.slice(1).filter((request) => request.url.startsWith(HOST))
+
+    expect(foreign(requests).map((request) => request.url)).toEqual([hop])
+    expect(foreign(requests).map((request) => request.cookie)).toEqual([null])
+    expect(sameOrigin.map((request) => request.url)).toEqual([at('/'), at(`/${PLUGIN_URL}`), at(`/${BAD_REV_URL}`)])
+    expect(sameOrigin.map((request) => request.cookie)).toEqual(sameOrigin.map(() => COOKIE))
+    expect(report.problems).toEqual([])
+  })
+
+  it('A2 a cross-origin roster url gets no cookie', async () => {
+    const bundle = `${ELSEWHERE}${PLUGIN_URL}`
+    const routes = withRoutes({
+      '/': { status: 200, body: bootHtml([{ ...PLUGIN_ENTRY, url: bundle }]) },
+      [new URL(bundle).href]: { status: 200, body: BUNDLE_OK },
+      [new URL(bundle.replace('f909492e1212', '000000000000')).href]: { status: 404 },
+    })
+    const { report, requests } = await runCheck(routes, { auth: true }, tokenUrl)
+
+    expect(foreign(requests)).toHaveLength(2)
+    expect(foreign(requests).map((request) => request.cookie)).toEqual([null, null])
+    expect(requests.find((request) => request.url === at('/'))?.cookie).toBe(COOKIE)
+    expect(report.problems).toEqual([])
   })
 })
