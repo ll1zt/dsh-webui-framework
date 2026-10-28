@@ -106,13 +106,17 @@ function createRun(baseUrl: string, fetchImpl: typeof fetch): SmokeRun {
   return { start, fetchImpl, cookies: new Map(), secrets: secretsOf(baseUrl), problems: [], unauthorized: false }
 }
 
-function requestHeaders(run: SmokeRun): Record<string, string> {
-  if (run.cookies.size === 0) return {}
+/** The session cookie belongs to the start origin; a redirect or roster url elsewhere must not receive it. */
+const isStartOrigin = (run: SmokeRun, url: URL): boolean => url.origin === run.start.origin
+
+function requestHeaders(run: SmokeRun, url: URL): Record<string, string> {
+  if (run.cookies.size === 0 || !isStartOrigin(run, url)) return {}
   return { cookie: [...run.cookies].map(([name, value]) => `${name}=${value}`).join('; ') }
 }
 
 /** Keeps only `name=value` from each Set-Cookie line; attributes such as HttpOnly are not secrets. */
-function rememberCookies(run: SmokeRun, response: Response): void {
+function rememberCookies(run: SmokeRun, response: Response, url: URL): void {
+  if (!isStartOrigin(run, url)) return
   for (const line of response.headers.getSetCookie()) {
     const pair = (line.split(';')[0] ?? '').trim()
     const eq = pair.indexOf('=')
@@ -123,14 +127,14 @@ function rememberCookies(run: SmokeRun, response: Response): void {
   }
 }
 
-/** GET with manual redirects, so the cookie from the host's 303 is kept and sent on every later hop. */
+/** GET with manual redirects, so the cookie from the host's 303 is kept and sent on every later same-origin hop. */
 async function get(run: SmokeRun, url: URL): Promise<Hop> {
   let target = url
   for (let hop = 0; ; hop += 1) {
-    const response = await run.fetchImpl(target.href, { redirect: 'manual', headers: requestHeaders(run) })
+    const response = await run.fetchImpl(target.href, { redirect: 'manual', headers: requestHeaders(run, target) })
     const isRedirect = response.status >= 300 && response.status <= 399
     if (!isRedirect) return { response, url: target }
-    rememberCookies(run, response)
+    rememberCookies(run, response, target)
     const location = response.headers.get('location')
     if (location === null || hop === MAX_REDIRECTS) return { response, url: target }
     await discard(response)
@@ -335,7 +339,7 @@ const invokedAsScript = process.argv[1] !== undefined && resolve(process.argv[1]
 if (invokedAsScript) {
   const baseUrl = process.argv[2]
   if (baseUrl === undefined) {
-    console.error('usage: npm run smoke -- <baseUrl>')
+    console.error('usage: npm run -s smoke -- <baseUrl>')
     process.exitCode = 2
   } else {
     process.exitCode = await runCli(baseUrl)
