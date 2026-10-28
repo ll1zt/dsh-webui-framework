@@ -6,9 +6,10 @@
  * The whole body sits in an IIFE because the bundle concatenates every sheet's
  * module into one scope, and top-level `var`s would collide between sheets.
  *
- * The body touches only `document.querySelector`, `createElement`,
- * `head.appendChild` and `dataset`: the verify-bundle stand-in for `document`
- * offers exactly those, so a richer DOM call would fail the offline check.
+ * The body touches only `document.head.querySelector`, `document.createElement`,
+ * `head.appendChild`, `dataset` and `textContent`: the tag is looked up in
+ * `document.head` alone, and the verify-bundle stand-in for `document` offers
+ * exactly that surface, so a richer DOM call would fail the offline check.
  */
 export function styleInjectionModule(pluginId: string, fileId: string, css: string): string {
   const tagId = `${pluginId}/${fileId}`
@@ -17,7 +18,7 @@ export function styleInjectionModule(pluginId: string, fileId: string, css: stri
     `  if (typeof document === 'undefined') return;`,
     `  var css = ${JSON.stringify(css)};`,
     `  var tagId = ${JSON.stringify(tagId)};`,
-    `  var tag = document.querySelector(${JSON.stringify(`style[data-plugin="${pluginId}"]`)});`,
+    `  var tag = document.head.querySelector(${JSON.stringify(`style[data-plugin="${pluginId}"]`)});`,
     `  if (tag === null) {`,
     `    tag = document.createElement('style');`,
     `    tag.dataset.plugin = ${JSON.stringify(pluginId)};`,

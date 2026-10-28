@@ -140,21 +140,26 @@ export function checkBundleSource(source: string): BundleViolation[] {
 }
 
 /**
- * Stand in for the browser document while the factory runs: the bundle's
- * stylesheet modules must be able to install a tag once and find it afterwards.
+ * Stand in for the browser document while the factory runs. It models only the
+ * surface the stylesheet modules use: `createElement`, and a `head` that holds
+ * the appended tags and answers `querySelector` for `style[data-plugin="…"]`.
+ * All sheets of a plugin merge into the one tag found under that selector, so
+ * the stand-in keeps no per-sheet state; `dataset.pluginCss` and `textContent`
+ * are whatever the injected code writes to the shared tag.
  */
-function createDocument(tags: Map<string, StyleTag>): Record<string, unknown> {
+function createDocument(): Record<string, unknown> {
+  const tags: StyleTag[] = []
   return {
-    createElement: () => ({ dataset: {}, textContent: '' }),
-    querySelector: (selector: string) => {
-      for (const [key, tag] of tags) if (selector.includes(key)) return tag
-      return null
-    },
+    createElement: (): StyleTag => ({ dataset: {}, textContent: '' }),
     head: {
       appendChild: (tag: StyleTag) => {
-        const key = tag.dataset.pluginCss
-        if (key !== undefined) tags.set(key, tag)
+        tags.push(tag)
         return tag
+      },
+      querySelector: (selector: string): StyleTag | null => {
+        const pluginId = /^style\[data-plugin="([^"]*)"\]$/.exec(selector)?.[1]
+        if (pluginId === undefined) throw new Error(`the document stand-in cannot answer the selector ${selector}`)
+        return tags.find((tag) => tag.dataset.plugin === pluginId) ?? null
       },
     },
   }
@@ -207,7 +212,7 @@ export async function verifyBundle(libDir: string, options: { budgetBytes?: numb
         },
       },
     },
-    document: createDocument(new Map()),
+    document: createDocument(),
   }
   try {
     runInNewContext(source, context)
