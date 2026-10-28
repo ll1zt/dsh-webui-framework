@@ -13,8 +13,8 @@ import type {} from './types.ts'
 
 export const name = 'dsh-web-ui'
 
-/** Services the page cannot render a frame without (docs/03 §2.1). */
-export const inject: string[] = ['slots', 'sessions', 'uiSession', 'workspaces', 'remote', 'theme', 'locale']
+/** Required services `apply` uses today; a unit that uses a new service adds it here. */
+export const inject: string[] = ['slots', 'locale', 'theme']
 
 /**
  * Client plugin body: own the `webui` copy namespace, then take the `root` seat
