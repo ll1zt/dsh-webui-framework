@@ -4,7 +4,7 @@ import type { SessionPendingInteraction, SessionStatus, SessionStatusSnapshot } 
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { describe, expect, it } from 'vitest'
 import type { SessionIndicator, SessionRow, SessionRowsInput } from './session-rows.ts'
-import { buildSessionRows } from './session-rows.ts'
+import { buildSessionRows, sessionTitleOf } from './session-rows.ts'
 
 type SessionRowItem = Extract<SessionRow, { kind: 'session' }>
 type GroupRowItem = Extract<SessionRow, { kind: 'group' }>
@@ -169,10 +169,11 @@ describe('buildSessionRows', () => {
     const groups = groupRows(rows)
     expect(groups.slice(0, 3).map(group => group.key)).toEqual(['pinned', 'ws:ws-1', 'ws:ws-2'])
     expect(groups.slice(3).map(group => group.key).sort()).toEqual(['cwd:', 'cwd:/a/b'])
-    expect(groupByKey(rows, 'ws:ws-1')?.label).toBe('Alpha')
-    expect(groupByKey(rows, 'ws:ws-2')?.label).toBe('Beta')
-    expect(groupByKey(rows, 'cwd:/a/b')?.label).toBe('b')
-    expect(groupByKey(rows, 'cwd:')?.label).toBe('其它')
+    expect(groupByKey(rows, 'pinned')?.label).toEqual({ kind: 'pinned' })
+    expect(groupByKey(rows, 'ws:ws-1')?.label).toEqual({ kind: 'text', text: 'Alpha' })
+    expect(groupByKey(rows, 'ws:ws-2')?.label).toEqual({ kind: 'text', text: 'Beta' })
+    expect(groupByKey(rows, 'cwd:/a/b')?.label).toEqual({ kind: 'text', text: 'b' })
+    expect(groupByKey(rows, 'cwd:')?.label).toEqual({ kind: 'other' })
 
     const ofGroup = (key: string): SessionId[] =>
       sessionRows(rows)
@@ -292,8 +293,71 @@ describe('buildSessionRows', () => {
 
     const pinned = groupByKey(rows, 'pinned')
     expect(pinned?.expanded).toBe(true)
-    expect(pinned?.pinned).toBe(true)
+    expect(pinned?.label).toEqual({ kind: 'pinned' })
     expect(pinned?.count).toBe(1)
     expect(groupOf(rows, 'pinned-one')?.groupKey).toBe('pinned')
+  })
+
+  it('A1 a plain fork is a root row, only a subagent child nests behind its parent', () => {
+    const list = listOf([
+      summary('parent', { updatedAt: 100 }),
+      summary('fork', { parentId: sid('parent'), updatedAt: 200 }),
+    ])
+    const workspaces = snapshotOf([{ id: 'ws-1', title: 'Alpha', sessionIds: ['parent', 'fork'] }])
+    const forked = build({ list, workspaces, expanded: new Set(['ws:ws-1']) })
+
+    expect(visibleIds(forked)).toEqual([sid('fork'), sid('parent')])
+    expect(groupOf(forked, 'fork')?.depth).toBe(0)
+    expect(groupOf(forked, 'parent')?.depth).toBe(0)
+
+    const nested = build({
+      list: listOf([
+        summary('parent', { updatedAt: 100 }),
+        summary('agent', { parentId: sid('parent'), origin: 'subagent', updatedAt: 200 }),
+      ]),
+      workspaces: snapshotOf([{ id: 'ws-1', title: 'Alpha', sessionIds: ['parent', 'agent'] }]),
+      expanded: new Set(['ws:ws-1']),
+    })
+    expect(visibleIds(nested)).toEqual([sid('parent'), sid('agent')])
+    expect(groupOf(nested, 'agent')?.depth).toBe(1)
+  })
+
+  it('A2 group labels are shapes: pinned, workspace text, cwd basename text, other', () => {
+    const list = listOf([
+      summary('pinned-one', { updatedAt: 4 }),
+      summary('in-ws', { updatedAt: 3 }),
+      summary('in-cwd', { updatedAt: 2, cwd: '/a/b' }),
+      summary('no-cwd', { updatedAt: 1 }),
+    ])
+    const workspaces = snapshotOf([{ id: 'ws-1', title: 'Alpha', sessionIds: ['in-ws'] }], {
+      pinnedSessionIds: [sid('pinned-one')],
+    })
+    const rows = build({ list, workspaces })
+
+    expect(groupRows(rows).map(group => [group.key, group.label])).toEqual([
+      ['pinned', { kind: 'pinned' }],
+      ['ws:ws-1', { kind: 'text', text: 'Alpha' }],
+      ['cwd:/a/b', { kind: 'text', text: 'b' }],
+      ['cwd:', { kind: 'other' }],
+    ])
+    expect(groupRows(rows).every(group => !('pinned' in group))).toBe(true)
+  })
+})
+
+describe('sessionTitleOf', () => {
+  it('A4 falls back from projection title to cwd basename to session id, and to the id when unknown', () => {
+    const list = listOf(
+      [
+        summary('titled', { cwd: '/a/b' }),
+        summary('in-cwd', { cwd: '/a/b' }),
+        summary('bare'),
+      ],
+      { titles: { titled: 'Fix bug' } },
+    )
+
+    expect(sessionTitleOf(list, sid('titled'))).toBe('Fix bug')
+    expect(sessionTitleOf(list, sid('in-cwd'))).toBe('b')
+    expect(sessionTitleOf(list, sid('bare'))).toBe('bare')
+    expect(sessionTitleOf(list, sid('missing'))).toBe('missing')
   })
 })
