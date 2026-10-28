@@ -27,7 +27,7 @@
     "prepack": "npm run build",
     "pack:check": "node scripts/pack-check.ts",
     "smoke": "node scripts/host-smoke.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
     "check": "npm run typecheck && npm run lint && npm run test"
