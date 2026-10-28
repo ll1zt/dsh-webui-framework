@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentType, ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { App } from '../../client/entries/App.tsx'
@@ -18,6 +18,7 @@ const translate = (key: string): string => key
 
 describe('AppShell', () => {
   afterEach(() => {
+    cleanup()
     vi.restoreAllMocks()
     Reflect.deleteProperty(navigator, 'clipboard')
   })
@@ -37,7 +38,8 @@ describe('AppShell', () => {
 
   it('TestShell_A4 keeps the other regions alive and remounts the failed one on retry', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => Promise.resolve() } })
+    const writeText = vi.fn((_text: string) => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
 
     let broken = true
     function Flaky(): ReactNode {
@@ -61,14 +63,12 @@ describe('AppShell', () => {
     expect(main?.textContent).toContain('main')
     expect(main?.textContent).not.toContain('sidebar exploded')
 
-    const actions = screen.getAllByRole('button')
-    expect(actions.length).toBeGreaterThan(0)
     broken = false
-    for (const action of actions) {
-      fireEvent.click(action)
-      if (screen.queryByTestId('sidebar-recovered') !== null) break
-    }
+    fireEvent.click(screen.getByRole('button', { name: 'shell.error.retry' }))
     expect(screen.getByTestId('sidebar-recovered')).toBeTruthy()
+    expect(screen.getByTestId('topbar-content')).toBeTruthy()
+    expect(screen.getByTestId('main-content')).toBeTruthy()
+    expect(writeText).not.toHaveBeenCalled()
 
     const logged = consoleError.mock.calls.map((args) => args.map(String).join(' ')).join('\n')
     expect(logged).toContain('[dsh-web-ui]')

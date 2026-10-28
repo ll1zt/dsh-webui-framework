@@ -1,13 +1,16 @@
 // @vitest-environment happy-dom
-import { fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AppErrorBoundary, RegionBoundary } from './ErrorBoundary.tsx'
 
 const ERROR_MESSAGE = 'boundary exploded'
 
+const translate = (key: string): string => key
+
 describe('ErrorBoundary', () => {
   afterEach(() => {
+    cleanup()
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     Reflect.deleteProperty(navigator, 'clipboard')
@@ -15,7 +18,8 @@ describe('ErrorBoundary', () => {
 
   it('TestBoundary_A5 shows the whole-page panel and reloads the window', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: () => Promise.resolve() } })
+    const writeText = vi.fn((_text: string) => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
     const reload = vi.fn()
     vi.stubGlobal('location', { reload })
 
@@ -24,39 +28,38 @@ describe('ErrorBoundary', () => {
     }
 
     const { container } = render(
-      <AppErrorBoundary>
+      <AppErrorBoundary t={translate}>
         <Boom />
       </AppErrorBoundary>,
     )
 
     expect(container.textContent).toContain(ERROR_MESSAGE)
-    const actions = screen.getAllByRole('button')
-    expect(actions.length).toBeGreaterThan(0)
-    for (const action of actions) fireEvent.click(action)
-    expect(reload).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'shell.error.reload' }))
+    expect(reload).toHaveBeenCalledTimes(1)
+    expect(writeText).not.toHaveBeenCalled()
   })
 
   it('TestBoundary_A6 copies the error message and stack to the clipboard', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const writeText = vi.fn((_text: string) => Promise.resolve())
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const reload = vi.fn()
+    vi.stubGlobal('location', { reload })
 
     function Boom(): ReactNode {
       throw new Error(ERROR_MESSAGE)
     }
 
     render(
-      <RegionBoundary region="main">
+      <RegionBoundary region="main" t={translate}>
         <Boom />
       </RegionBoundary>,
     )
 
-    for (const action of screen.getAllByRole('button')) {
-      fireEvent.click(action)
-      if (writeText.mock.calls.length > 0) break
-    }
+    fireEvent.click(screen.getByRole('button', { name: 'shell.error.copy' }))
 
     expect(writeText).toHaveBeenCalledTimes(1)
+    expect(reload).not.toHaveBeenCalled()
     const copied = String(writeText.mock.calls[0]?.[0])
     expect(copied).toContain(ERROR_MESSAGE)
     // React's dev rethrow hands the boundary an error rebuilt by the browser error event, so compare the
