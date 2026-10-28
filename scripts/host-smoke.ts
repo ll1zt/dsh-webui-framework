@@ -1,5 +1,4 @@
-import { resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { isInvokedAsScript, messageOf } from './cli-utils.ts'
 import { PLUGIN_ID } from './plugin-constants.ts'
 
 /**
@@ -68,8 +67,6 @@ type BootRead = { ok: true; entries: unknown[] } | { ok: false; reason: string }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
-
-const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 
 /** The base URL and its `?token=` value; neither may reach output, nor any cookie value learned later. */
 function secretsOf(baseUrl: string): string[] {
@@ -334,9 +331,7 @@ async function runCli(baseUrl: string): Promise<number> {
   return report.problems.length === 0 ? 0 : 1
 }
 
-const invokedAsScript = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-
-if (invokedAsScript) {
+if (isInvokedAsScript(process.argv[1], import.meta.url)) {
   const baseUrl = process.argv[2]
   if (baseUrl === undefined) {
     console.error('usage: npm run -s smoke -- <baseUrl>')

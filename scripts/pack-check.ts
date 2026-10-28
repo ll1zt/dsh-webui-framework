@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { isInvokedAsScript } from './cli-utils.ts'
 
 /** One entry the packed tarball got wrong: absent when required, or present when it must not ship. */
 export interface PackViolation {
@@ -126,9 +127,7 @@ function report(dir: string, violations: readonly PackViolation[], fileCount: nu
   return 1
 }
 
-const invokedAsScript = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-
-if (invokedAsScript) {
+if (isInvokedAsScript(process.argv[1], import.meta.url)) {
   const scriptDir = dirname(fileURLToPath(import.meta.url))
   const dir = resolve(process.argv[2] ?? resolve(scriptDir, '..'))
   const listing = readPackedPaths(dir)
