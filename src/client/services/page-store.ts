@@ -1,8 +1,6 @@
 /** Root-owned page geometry and panel state: the shell's shared store seat. */
 import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
-
-/** Durable key of the sidebar width preference (design doc 03 §4.2 key prefix). */
-const SIDEBAR_WIDTH_KEY = 'dsh-web-ui:sidebar-width'
+import { STORAGE_KEYS } from '../../lib/storage-keys.ts'
 
 /** Width the shell opens with before the sidebar is ever dragged. */
 const DEFAULT_SIDEBAR_WIDTH = 260
@@ -31,7 +29,7 @@ export type PageStoreHandle = EngineStoreHandle<PageState, Record<never, never>>
 function readSidebarWidth(): number {
   try {
     // Denied storage throws on the property access itself, not only on getItem.
-    const raw = globalThis.localStorage.getItem(SIDEBAR_WIDTH_KEY)
+    const raw = globalThis.localStorage.getItem(STORAGE_KEYS.sidebarWidth)
     if (raw === null || raw.trim() === '') return DEFAULT_SIDEBAR_WIDTH
     const width = Number(raw)
     return Number.isFinite(width) ? width : DEFAULT_SIDEBAR_WIDTH
