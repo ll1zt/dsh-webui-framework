@@ -1,1 +1,7 @@
-{}
+{
+  "shell.error.copy": "Copy error",
+  "shell.error.pageTitle": "The page crashed",
+  "shell.error.regionTitle": "This area failed to load",
+  "shell.error.reload": "Reload",
+  "shell.error.retry": "Retry"
+}
