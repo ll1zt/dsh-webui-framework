@@ -26,6 +26,7 @@
     "build": "tsdown && node scripts/verify-bundle.ts lib",
     "prepack": "npm run build",
     "pack:check": "node scripts/pack-check.ts",
+    "smoke": "node scripts/host-smoke.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run --passWithNoTests",
