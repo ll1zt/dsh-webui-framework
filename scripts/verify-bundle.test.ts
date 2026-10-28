@@ -180,8 +180,6 @@ describe('verify-bundle CLI and budget', () => {
   })
 
   it('verifyBundle rejects a missing libDir instead of returning an empty report', async () => {
-    await expect(verifyBundle(join(ROOT, 'scripts/fixtures/does-not-exist'))).rejects.toThrow(
-      /does-not-exist/,
-    )
+    await expect(verifyBundle(join(ROOT, 'scripts/fixtures/does-not-exist'))).rejects.toThrow(/does-not-exist/)
   })
 })

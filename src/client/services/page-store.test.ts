@@ -10,14 +10,20 @@ function fakeStorage(initial: Record<string, string>, readError?: Error): Storag
     get length() {
       return values.size
     },
-    clear: () => { values.clear() },
+    clear: () => {
+      values.clear()
+    },
     getItem: (key: string) => {
       if (readError !== undefined) throw readError
       return values.get(key) ?? null
     },
     key: (index: number) => [...values.keys()][index] ?? null,
-    removeItem: (key: string) => { values.delete(key) },
-    setItem: (key: string, value: string) => { values.set(key, value) },
+    removeItem: (key: string) => {
+      values.delete(key)
+    },
+    setItem: (key: string, value: string) => {
+      values.set(key, value)
+    },
   }
 }
 
@@ -26,7 +32,9 @@ function seededSidebarWidth(): number {
 }
 
 describe('createPageStore', () => {
-  afterEach(() => { vi.unstubAllGlobals() })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
   it('TestStore_A7 seeds sidebarWidth from storage and falls back to 260', () => {
     vi.stubGlobal('localStorage', fakeStorage({ [SIDEBAR_WIDTH_KEY]: '300' }))

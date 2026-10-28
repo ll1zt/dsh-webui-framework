@@ -117,9 +117,7 @@ function collapseWhitespace(text: string): string {
 function shiftMappings(mappings: string, shift: number): string {
   if (shift === 0) return mappings
   const lines = mappings.split(';')
-  return shift > 0
-    ? [...Array<string>(shift).fill(''), ...lines].join(';')
-    : lines.slice(-shift).join(';')
+  return shift > 0 ? [...Array<string>(shift).fill(''), ...lines].join(';') : lines.slice(-shift).join(';')
 }
 
 /**
@@ -157,7 +155,10 @@ const clientHalf: UserConfig = {
   // tsdown builds a CommonJS output on the node platform, so the browser
   // resolution an inlined dependency needs must be stated here (03 §1.2).
   inputOptions: {
-    resolve: { conditionNames: ['production', 'browser', 'import', 'module', 'default'], mainFields: ['browser', 'module', 'main'] },
+    resolve: {
+      conditionNames: ['production', 'browser', 'import', 'module', 'default'],
+      mainFields: ['browser', 'module', 'main'],
+    },
   },
   define: {
     'process.env': '{}',

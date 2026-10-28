@@ -9,13 +9,7 @@ import type { PackViolation } from './pack-check.ts'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const COMPLIANT = [
-  'package.json',
-  'lib/index.js',
-  'lib/client.js',
-  'cordis.patch.yml',
-  'locale/zh.json',
-]
+const COMPLIANT = ['package.json', 'lib/index.js', 'lib/client.js', 'cordis.patch.yml', 'locale/zh.json']
 
 /** (file, reason) pairs as a sorted set, so a duplicated report is not a failure but a missing one is. */
 const pairs = (violations: readonly PackViolation[]): string[] =>

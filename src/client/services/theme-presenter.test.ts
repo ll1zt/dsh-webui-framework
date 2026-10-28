@@ -21,7 +21,9 @@ function snapshot(overrides: Partial<ThemeSnapshot> = {}): ThemeSnapshot {
 
 /** Every custom property the body inline style carries, sorted. */
 function bodyCustomProperties(): string[] {
-  return Array.from(document.body.style).filter((name) => name.startsWith('--')).sort()
+  return Array.from(document.body.style)
+    .filter((name) => name.startsWith('--'))
+    .sort()
 }
 
 describe('ThemePresenter', () => {
@@ -55,7 +57,9 @@ describe('ThemePresenter', () => {
     presenter.apply(snapshot({ preference: 'dark', active: DARK }))
     presenter.apply(snapshot({ active: LIGHT }))
     // The font-size variables are not tokens; only the token names are compared here.
-    expect(bodyCustomProperties().filter((name) => !name.startsWith('--dsh-'))).toEqual(Object.keys(LIGHT.tokens).sort())
+    expect(bodyCustomProperties().filter((name) => !name.startsWith('--dsh-'))).toEqual(
+      Object.keys(LIGHT.tokens).sort(),
+    )
     expect(document.body.style.getPropertyValue('--bg')).toBe('#ffffff')
   })
 

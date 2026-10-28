@@ -166,7 +166,9 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
     const set = listeners.get(event) ?? new Set<(...args: unknown[]) => void>()
     listeners.set(event, set)
     set.add(listener)
-    return track(() => { set.delete(listener) })
+    return track(() => {
+      set.delete(listener)
+    })
   }
 
   const emit = (event: string, ...args: unknown[]): void => {

@@ -31,12 +31,7 @@ const MAX_REDIRECTS = 5
 
 /** The closed set of problem codes; every problem string starts with one of them, then `: `. */
 export type SmokeProblemCode =
-  | 'boot-missing'
-  | 'plugin-missing'
-  | 'bundle-status'
-  | 'first-line'
-  | 'bad-rev-status'
-  | 'unauthorized'
+  'boot-missing' | 'plugin-missing' | 'bundle-status' | 'first-line' | 'bad-rev-status' | 'unauthorized'
 
 export interface HostSmokeReport {
   bootFound: boolean
@@ -335,8 +330,7 @@ async function runCli(baseUrl: string): Promise<number> {
   return report.problems.length === 0 ? 0 : 1
 }
 
-const invokedAsScript =
-  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const invokedAsScript = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 if (invokedAsScript) {
   const baseUrl = process.argv[2]

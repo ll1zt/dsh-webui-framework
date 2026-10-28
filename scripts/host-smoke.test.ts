@@ -62,7 +62,10 @@ const fakeHost = (routes: Routes, options: FakeHostOptions = {}) => {
     if (url.searchParams.has('token')) {
       return new Response(null, {
         status: 303,
-        headers: [['location', './'], ['set-cookie', `${COOKIE}; Max-Age=60; Path=/; HttpOnly`]],
+        headers: [
+          ['location', './'],
+          ['set-cookie', `${COOKIE}; Max-Age=60; Path=/; HttpOnly`],
+        ],
       })
     }
     if (options.auth === true && cookie !== COOKIE) return new Response(null, { status: 401 })

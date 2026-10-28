@@ -88,7 +88,7 @@ function isModuleStatement(statement: ts.Statement): boolean {
   ) {
     return true
   }
-  const modifiers = ts.canHaveModifiers(statement) ? ts.getModifiers(statement) ?? [] : []
+  const modifiers = ts.canHaveModifiers(statement) ? (ts.getModifiers(statement) ?? []) : []
   return modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)
 }
 
@@ -185,10 +185,7 @@ function createSeedRequire(requested: Set<string>): unknown {
  * @returns the report; violations are listed rather than thrown.
  * @throws {Error} when `libDir` holds no readable `client.js`.
  */
-export async function verifyBundle(
-  libDir: string,
-  options: { budgetBytes?: number } = {},
-): Promise<BundleReport> {
+export async function verifyBundle(libDir: string, options: { budgetBytes?: number } = {}): Promise<BundleReport> {
   const bundleFile = join(resolve(libDir), 'client.js')
   const source = await readFile(bundleFile, 'utf8').catch(() => {
     throw new Error(`verify-bundle: cannot read the client bundle at ${bundleFile}`)
@@ -203,7 +200,13 @@ export async function verifyBundle(
   const loads: LoaderRecord[] = []
   const requested = new Set<string>()
   const context: Record<string, unknown> = {
-    window: { __ModuleLoader__: { load: (record: LoaderRecord) => { loads.push(record) } } },
+    window: {
+      __ModuleLoader__: {
+        load: (record: LoaderRecord) => {
+          loads.push(record)
+        },
+      },
+    },
     document: createDocument(new Map()),
   }
   try {
@@ -215,14 +218,20 @@ export async function verifyBundle(
   }
 
   if (loads.length !== 1) {
-    violations.push({ code: 'load-count', detail: `window.__ModuleLoader__.load ran ${loads.length} times, expected once` })
+    violations.push({
+      code: 'load-count',
+      detail: `window.__ModuleLoader__.load ran ${loads.length} times, expected once`,
+    })
   }
   const record = loads[0]
   const id = typeof record?.id === 'string' ? record.id : undefined
   if (record === undefined) return { id, gzipBytes, externalRequires: [...requires], violations }
 
   if (record.id !== PLUGIN_ID) {
-    violations.push({ code: 'wrong-id', detail: `the loader record declares ${JSON.stringify(record.id)} instead of "${PLUGIN_ID}"` })
+    violations.push({
+      code: 'wrong-id',
+      detail: `the loader record declares ${JSON.stringify(record.id)} instead of "${PLUGIN_ID}"`,
+    })
   }
   if ('chunk' in record) {
     violations.push({ code: 'chunk-field', detail: 'the entry bundle must not declare a chunk name' })
@@ -242,7 +251,11 @@ export async function verifyBundle(
     // A seed gap surfaces only when the factory runs, and it must be reported
     // rather than allowed to abort the whole check.
     if (error instanceof ForeignRequireError) {
-      if (!violations.some((violation) => violation.code === 'foreign-require' && violation.detail.includes(error.specifier))) {
+      if (
+        !violations.some(
+          (violation) => violation.code === 'foreign-require' && violation.detail.includes(error.specifier),
+        )
+      ) {
         violations.push({ code: 'foreign-require', detail: messageOf(error) })
       }
     } else {
@@ -271,8 +284,7 @@ function renderReport(libDir: string, report: BundleReport): string {
   ].join('\n')
 }
 
-const invokedAsScript =
-  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const invokedAsScript = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 if (invokedAsScript) {
   const libDir = process.argv[2] ?? 'lib'

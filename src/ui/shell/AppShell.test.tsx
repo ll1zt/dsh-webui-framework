@@ -27,10 +27,7 @@ describe('AppShell', () => {
     // share its `store`/`locale` registration provides (a selector hook and a translate function).
     const RootEntry = App as unknown as ComponentType<Record<string, unknown>>
     const { container } = render(
-      <RootEntry
-        t={translate}
-        useStore={(select: (state: PageState) => unknown) => select(PAGE_STATE)}
-      />,
+      <RootEntry t={translate} useStore={(select: (state: PageState) => unknown) => select(PAGE_STATE)} />,
     )
 
     for (const region of ['sidebar', 'topbar', 'main']) {
