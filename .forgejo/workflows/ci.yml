@@ -55,26 +55,8 @@ jobs:
           set -eu
           nix develop . --no-write-lock-file --command bash -c 'npm ci'
 
-      - name: typecheck
+      - name: gate
         working-directory: source
         run: |
           set -eu
-          nix develop . --no-write-lock-file --command bash -c 'npm run typecheck'
-
-      - name: lint
-        working-directory: source
-        run: |
-          set -eu
-          nix develop . --no-write-lock-file --command bash -c 'npm run lint'
-
-      - name: test
-        working-directory: source
-        run: |
-          set -eu
-          nix develop . --no-write-lock-file --command bash -c 'npm run test'
-
-      - name: build
-        working-directory: source
-        run: |
-          set -eu
-          nix develop . --no-write-lock-file --command bash -c 'npm run build --if-present'
+          nix develop . --no-write-lock-file --command bash -c 'npm run gate'
