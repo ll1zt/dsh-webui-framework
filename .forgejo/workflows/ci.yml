@@ -18,8 +18,8 @@ jobs:
       NIX_CONFIG: |
         tarball-ttl = 2592000
       npm_config_registry: https://registry.npmmirror.com
-      npm_config_audit: "false"
-      npm_config_fund: "false"
+      npm_config_audit: 'false'
+      npm_config_fund: 'false'
     steps:
       - name: Checkout
         env:

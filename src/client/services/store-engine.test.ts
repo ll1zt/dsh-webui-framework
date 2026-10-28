@@ -23,7 +23,9 @@ function initialState() {
 }
 
 describe('store engine', () => {
-  afterEach(() => { vi.unstubAllGlobals() })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
 
   it('A1 zustand/vanilla and immer resolve for the real store engine', async () => {
     await expect(import('zustand/vanilla')).resolves.toBeDefined()
@@ -57,7 +59,9 @@ describe('store engine', () => {
     expect(initialState()).toEqual(fallback)
     stubStorage(() => 'abc')
     expect(initialState()).toEqual(fallback)
-    stubStorage(() => { throw new Error('storage is denied') })
+    stubStorage(() => {
+      throw new Error('storage is denied')
+    })
     expect(initialState()).toEqual(fallback)
   })
 

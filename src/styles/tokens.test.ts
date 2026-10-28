@@ -3,17 +3,45 @@ import { describe, expect, it } from 'vitest'
 
 /** The 21 pi tokens the stylesheet defines on body (design doc 03 §3.2). */
 const PI_TOKENS = [
-  '--bg', '--bg-panel', '--bg-subtle', '--bg-hover', '--bg-selected', '--border',
-  '--text', '--text-muted', '--text-dim', '--accent', '--accent-hover', '--accent-contrast',
-  '--user-bg', '--assistant-bg', '--tool-bg', '--font-ui', '--font-mono',
-  '--chat-content-font-size', '--chat-content-max-width', '--sidebar-width', '--right-panel-width',
+  '--bg',
+  '--bg-panel',
+  '--bg-subtle',
+  '--bg-hover',
+  '--bg-selected',
+  '--border',
+  '--text',
+  '--text-muted',
+  '--text-dim',
+  '--accent',
+  '--accent-hover',
+  '--accent-contrast',
+  '--user-bg',
+  '--assistant-bg',
+  '--tool-bg',
+  '--font-ui',
+  '--font-mono',
+  '--chat-content-font-size',
+  '--chat-content-max-width',
+  '--sidebar-width',
+  '--right-panel-width',
 ]
 
 /** Colour tokens that must alias the dsw palette; `--assistant-bg` is `transparent` and exempt. */
 const COLOUR_TOKENS = [
-  '--bg', '--bg-panel', '--bg-subtle', '--bg-hover', '--bg-selected', '--border',
-  '--text', '--text-muted', '--text-dim', '--accent', '--accent-hover', '--accent-contrast',
-  '--user-bg', '--tool-bg',
+  '--bg',
+  '--bg-panel',
+  '--bg-subtle',
+  '--bg-hover',
+  '--bg-selected',
+  '--border',
+  '--text',
+  '--text-muted',
+  '--text-dim',
+  '--accent',
+  '--accent-hover',
+  '--accent-contrast',
+  '--user-bg',
+  '--tool-bg',
 ]
 
 // Block comments are stripped so that a note mentioning a selector cannot satisfy or break the checks.

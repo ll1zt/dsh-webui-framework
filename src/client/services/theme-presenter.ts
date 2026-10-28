@@ -71,8 +71,7 @@ export class ThemePresenter {
   apply(snapshot: ThemeSnapshot): void {
     const scheme = snapshot.active.colorScheme
     document.documentElement.style.colorScheme = scheme
-    document.documentElement.setAttribute(THEME_SOURCE_ATTRIBUTE,
-      snapshot.preference === 'system' ? 'system' : scheme)
+    document.documentElement.setAttribute(THEME_SOURCE_ATTRIBUTE, snapshot.preference === 'system' ? 'system' : scheme)
     const body = document.body
     if (scheme === 'dark') body.setAttribute(DARK_ATTRIBUTE, '')
     else body.removeAttribute(DARK_ATTRIBUTE)
@@ -90,6 +89,7 @@ export class ThemePresenter {
       body.style.setProperty(name, value)
       this.appliedTokens.push(name)
     }
+    // Relies on the host's packages/client/web/src/base.css giving body `background: var(--dsw-alias-bg-base)`.
     this.themeColorMeta.content = getComputedStyle(body).backgroundColor
     if (!this.themeColorMeta.isConnected) document.head.append(this.themeColorMeta)
   }

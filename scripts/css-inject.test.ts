@@ -15,7 +15,9 @@ const run = (text: string, doc: Document | undefined): void => {
   new Function('document', text)(doc)
 }
 
-const pluginStyles = (): HTMLStyleElement[] => [...document.querySelectorAll<HTMLStyleElement>(`style[data-plugin="${PLUGIN_ID}"]`)]
+const pluginStyles = (): HTMLStyleElement[] => [
+  ...document.querySelectorAll<HTMLStyleElement>(`style[data-plugin="${PLUGIN_ID}"]`),
+]
 
 describe('styleInjectionModule', () => {
   beforeEach(() => {

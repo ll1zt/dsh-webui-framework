@@ -126,8 +126,7 @@ function report(dir: string, violations: readonly PackViolation[], fileCount: nu
   return 1
 }
 
-const invokedAsScript =
-  process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+const invokedAsScript = process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 
 if (invokedAsScript) {
   const scriptDir = dirname(fileURLToPath(import.meta.url))
