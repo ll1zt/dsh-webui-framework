@@ -11,23 +11,44 @@ import { flattenSessionLineage } from './lineage.ts'
 /** Status badge a session row shows; `time` is the plain relative-time row. */
 export type SessionIndicator = 'awaiting' | 'running' | 'unread' | 'time'
 
+/** What a group header is called; the view owns the wording of `pinned` and `other`. */
+export type SessionGroupLabel = { kind: 'pinned' } | { kind: 'other' } | { kind: 'text'; text: string }
+
+/** A group header row. */
+export interface SessionGroupRow {
+  kind: 'group'
+  key: string
+  label: SessionGroupLabel
+  count: number
+  expanded: boolean
+}
+
+/** One session row; `depth` is 1 only for a sub-agent nested under its parent. */
+export interface SessionItemRow {
+  kind: 'session'
+  id: SessionId
+  groupKey: string
+  title: string
+  depth: number
+  updatedAt: number
+  indicator: SessionIndicator
+  selected: boolean
+  archived: boolean
+  running: boolean
+}
+
+/** Whole-list placeholder while the list is still loading. */
+export interface SessionLoadingRow {
+  kind: 'loading'
+}
+
+/** Whole-list placeholder when there is nothing to show. */
+export interface SessionEmptyRow {
+  kind: 'empty'
+}
+
 /** One sidebar row: a group header, a session, or the whole-list placeholder. */
-export type SessionRow =
-  | { kind: 'group'; key: string; label: string; count: number; expanded: boolean; pinned: boolean }
-  | {
-    kind: 'session'
-    id: SessionId
-    groupKey: string
-    title: string
-    depth: number
-    updatedAt: number
-    indicator: SessionIndicator
-    selected: boolean
-    archived: boolean
-    running: boolean
-  }
-  | { kind: 'loading' }
-  | { kind: 'empty' }
+export type SessionRow = SessionGroupRow | SessionItemRow | SessionLoadingRow | SessionEmptyRow
 
 /** Everything the row model derives from; no clock, no ambient stores. */
 export interface SessionRowsInput {
@@ -41,23 +62,33 @@ export interface SessionRowsInput {
 }
 
 const PINNED_GROUP_KEY = 'pinned'
-const PINNED_GROUP_LABEL = '置顶'
-const OTHER_GROUP_LABEL = '其它'
 const CWD_GROUP_PREFIX = 'cwd:'
 
 interface GroupDraft {
   readonly key: string
-  readonly label: string
+  readonly label: SessionGroupLabel
   readonly sessions: SessionSummary[]
 }
 
 const cwdSegments = (cwd: string | undefined): string[] =>
   cwd === undefined ? [] : cwd.split('/').filter(segment => segment.length > 0)
 
-const titleOf = (list: SessionListState, summary: SessionSummary): string => {
-  const projected = list.projectionsBySession[summary.id]?.values.title
+/**
+ * The one session-title rule (sidebar, session block header, search): the
+ * projected title, else the last cwd segment, else the id itself.
+ * @param list - session list the summary and projections come from.
+ * @param id - session to title; an id missing from the list titles itself.
+ * @returns a non-empty display title.
+ */
+export function sessionTitleOf(list: SessionListState, id: SessionId): string {
+  const projected = list.projectionsBySession[id]?.values.title
   if (typeof projected === 'string' && projected.length > 0) return projected
-  return cwdSegments(summary.cwd).at(-1) ?? summary.id
+  return cwdSegments(list.byId[id]?.cwd).at(-1) ?? id
+}
+
+const cwdLabelOf = (cwd: string | undefined): SessionGroupLabel => {
+  const last = cwdSegments(cwd).at(-1)
+  return last === undefined ? { kind: 'other' } : { kind: 'text', text: last }
 }
 
 const indicatorOf = (status: SessionStatusSnapshot, id: SessionId): SessionIndicator => {
@@ -88,7 +119,7 @@ export function buildSessionRows(input: SessionRowsInput): SessionRow[] {
   for (const view of workspaces?.items ?? []) {
     const key = `ws:${view.workspaceId}`
     if (workspaceGroupByKey.has(key)) continue
-    const group: GroupDraft = { key, label: view.title, sessions: [] }
+    const group: GroupDraft = { key, label: { kind: 'text', text: view.title }, sessions: [] }
     workspaceGroups.push(group)
     workspaceGroupByKey.set(key, group)
     for (const id of view.sessionIds) {
@@ -96,7 +127,7 @@ export function buildSessionRows(input: SessionRowsInput): SessionRow[] {
     }
   }
 
-  const pinnedGroup: GroupDraft = { key: PINNED_GROUP_KEY, label: PINNED_GROUP_LABEL, sessions: [] }
+  const pinnedGroup: GroupDraft = { key: PINNED_GROUP_KEY, label: { kind: 'pinned' }, sessions: [] }
   const cwdGroups = new Map<string, GroupDraft>()
   for (const id of list.ids) {
     const summary = list.byId[id]
@@ -117,7 +148,7 @@ export function buildSessionRows(input: SessionRowsInput): SessionRow[] {
     if (cwdGroup === undefined) {
       cwdGroups.set(cwdKey, {
         key: cwdKey,
-        label: cwdSegments(summary.cwd).at(-1) ?? OTHER_GROUP_LABEL,
+        label: cwdLabelOf(summary.cwd),
         sessions: [summary],
       })
     } else {
@@ -130,8 +161,7 @@ export function buildSessionRows(input: SessionRowsInput): SessionRow[] {
   )
   const rows: SessionRow[] = []
   for (const group of drafts) {
-    const pinned = group.key === PINNED_GROUP_KEY
-    const isExpanded = pinned
+    const isExpanded = group.key === PINNED_GROUP_KEY
       || expanded.has(group.key)
       || group.sessions.some(summary => summary.id === selectedId)
     rows.push({
@@ -140,7 +170,6 @@ export function buildSessionRows(input: SessionRowsInput): SessionRow[] {
       label: group.label,
       count: group.sessions.length,
       expanded: isExpanded,
-      pinned,
     })
     if (isExpanded) rows.push(...sessionRowsOf(group, list, status, archivedIds, selectedId))
   }
@@ -162,7 +191,8 @@ function sessionRowsOf(
   const byRecency = [...group.sessions].sort((left, right) => right.updatedAt - left.updatedAt)
   const lineage: LineageInput[] = byRecency.map(summary => ({
     sessionId: summary.id,
-    parentSessionId: summary.parentId,
+    // Only a sub-agent nests under its source; a plain fork is a root of its own.
+    parentSessionId: summary.origin === 'subagent' ? summary.parentId : undefined,
   }))
   const summaries = new Map<string, SessionSummary>()
   for (const summary of byRecency) summaries.set(summary.id, summary)
@@ -175,7 +205,7 @@ function sessionRowsOf(
       kind: 'session',
       id: summary.id,
       groupKey: group.key,
-      title: titleOf(list, summary),
+      title: sessionTitleOf(list, summary.id),
       depth: entry.depth,
       updatedAt: summary.updatedAt,
       indicator: indicatorOf(status, summary.id),
