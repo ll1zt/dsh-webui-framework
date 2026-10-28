@@ -1,4 +1,5 @@
 /** Module augmentations for slot keys and session-scoped standard props (docs/03 §2.3). */
+import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type zhDict from '../../locale/zh.json'
 
 /**
@@ -14,3 +15,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     webui: WebuiKey
   }
 }
+
+/** Copy function of this package's `webui` namespace: the only place its type is spelled, so a wrong key fails tsc. */
+export type WebuiTranslate = TranslateNS<'webui'>

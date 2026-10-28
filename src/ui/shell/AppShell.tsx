@@ -1,10 +1,8 @@
 /** The whole-page frame: a full-height sidebar beside topbar-over-main, plus the optional right column and overlay. */
 import type { ReactNode } from 'react'
+import type { WebuiTranslate } from '../../client/types.ts'
 import { RegionBoundary } from './ErrorBoundary.tsx'
 import './shell.css'
-
-/** Copy seat of the shell; the root registration's `locale` option provides it. */
-type ShellTranslate = (key: string) => string
 
 /** Props of {@link AppShell}: every region is a fully composed subtree supplied by the owner. */
 export interface AppShellProps {
@@ -13,7 +11,7 @@ export interface AppShellProps {
   main: ReactNode
   right?: ReactNode
   overlay?: ReactNode
-  t?: ShellTranslate | undefined
+  t?: WebuiTranslate | undefined
 }
 
 /**
