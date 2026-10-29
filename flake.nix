@@ -1,5 +1,5 @@
 {
-  description = "dsh-web-ui：dsh Web 前端整页 UI 插件的开发与 CI 工具链（Node + npm）";
+  description = "dsh-webui-framework：dsh Web 前端整页 UI 插件的开发与 CI 工具链（Node + npm）";
 
   inputs.nixpkgs.url = "git+https://mirrors.tuna.tsinghua.edu.cn/git/nixpkgs.git?ref=nixos-unstable&shallow=1";
 

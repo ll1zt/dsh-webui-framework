@@ -31,11 +31,6 @@ const PLUGIN_ID_GUARDS = [
     message: 'The seed-list sentinel is named once, in scripts/plugin-constants.ts; import it from there.',
   })),
 ]
-const STORAGE_PREFIX_GUARDS = textSelectors('=/^dsh-web-ui:/').map((selector) => ({
-  selector,
-  message:
-    "Storage keys (the 'dsh-web-ui:' prefix) are built only in src/lib/storage-keys.ts; import a key from there.",
-}))
 const SLOT_KEY_GUARDS = textSelectors('=/^webui[.]/').map((selector) => ({
   selector,
   message: 'Slot keys (the webui. prefix) are declared only in src/client/types.ts.',
@@ -109,22 +104,16 @@ export default tseslint.config(
   },
   {
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/lib/storage-keys.ts', 'src/client/types.ts', '**/*.test.*'],
+    ignores: ['src/client/types.ts', '**/*.test.*'],
     rules: {
-      'no-restricted-syntax': [
-        'error',
-        ...STORAGE_PREFIX_GUARDS,
-        ...PLUGIN_ID_GUARDS,
-        ...SLOT_KEY_GUARDS,
-        ...HTML_SINK_GUARDS,
-      ],
+      'no-restricted-syntax': ['error', ...PLUGIN_ID_GUARDS, ...SLOT_KEY_GUARDS, ...HTML_SINK_GUARDS],
     },
   },
   {
     // src/client/types.ts is the one module allowed to name slot keys, so it drops that one guard.
     files: ['src/client/types.ts'],
     rules: {
-      'no-restricted-syntax': ['error', ...STORAGE_PREFIX_GUARDS, ...PLUGIN_ID_GUARDS, ...HTML_SINK_GUARDS],
+      'no-restricted-syntax': ['error', ...PLUGIN_ID_GUARDS, ...HTML_SINK_GUARDS],
     },
   },
   {
@@ -135,7 +124,6 @@ export default tseslint.config(
     rules: {
       'no-restricted-syntax': [
         'error',
-        ...STORAGE_PREFIX_GUARDS,
         ...PLUGIN_ID_GUARDS,
         ...SLOT_KEY_GUARDS,
         ...HTML_SINK_GUARDS,

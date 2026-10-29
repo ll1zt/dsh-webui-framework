@@ -3,7 +3,7 @@ import '../styles/tokens.css'
 import type { Context } from '@deepseek-ai/cordis'
 import { FEATURES } from './features/index.ts'
 
-export const name = 'dsh-web-ui'
+export const name = 'webui-framework'
 
 /**
  * Client plugin body: load every feature as its own sub-plugin, so one lacking a service stays inactive alone.
