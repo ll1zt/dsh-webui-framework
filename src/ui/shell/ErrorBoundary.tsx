@@ -9,7 +9,7 @@ import type { WebuiTranslate } from '../../client/types.ts'
 
 export type RegionName = 'sidebar' | 'topbar' | 'main' | 'right'
 
-const LOG_PREFIX = '[dsh-web-ui]'
+const LOG_PREFIX = '[webui-framework]'
 
 export interface RegionBoundaryProps {
   region: RegionName

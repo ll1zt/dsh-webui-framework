@@ -13,6 +13,11 @@ const DELETED = [
   'src/lib/lineage.test.ts',
   'src/ui/shell/AppShell.tsx',
   'src/ui/shell/AppShell.test.tsx',
+  'src/client/services/page-store.ts',
+  'src/client/services/page-store.test.ts',
+  'src/client/services/store-engine.test.ts',
+  'src/lib/storage-keys.ts',
+  'src/lib/storage-keys.test.ts',
 ]
 
 const REMOVED_DEPS = [
@@ -67,5 +72,19 @@ describe('框架基线：非框架代码与多余依赖已删除', () => {
     const en = Object.keys(readLocale('en')).sort()
     expect(zh).toEqual(en)
     expect([...zh, ...en].filter((key) => REMOVED_KEYS.includes(key))).toEqual([])
+  })
+
+  it('A4 旧外壳的本地存储文件不存在，且 src、scripts、eslint.config.js 中没有对它们的引用', () => {
+    expect(DELETED.filter((file) => existsSync(join(ROOT, file)))).toEqual([])
+
+    // split so this file does not itself match the search
+    const needles = ['page-' + 'store', 'storage-' + 'keys', 'dsh-web-' + 'ui:']
+    const referrers = [...listFiles('src'), ...listFiles('scripts'), 'eslint.config.js']
+      .filter((file) => file !== SELF && /\.(?:[cm]?[jt]sx?|css|json)$/.test(file))
+      .filter((file) => {
+        const text = readFileSync(join(ROOT, file), 'utf8')
+        return needles.some((needle) => text.includes(needle))
+      })
+    expect(referrers).toEqual([])
   })
 })

@@ -38,6 +38,16 @@ describe('client apply', () => {
     expect(ctx.slots.entries('root')).toHaveLength(0)
   })
 
+  it('A4 the root registration carries no store', () => {
+    const ctx = createFakeContext({ theme: { getTheme: () => snapshot() } })
+    apply(ctx)
+
+    const entry = ctx.slots.entries('root')[0]
+    if (entry === undefined) throw new Error('the root slot has no registration')
+    expect(entry.store).toBeUndefined()
+    ctx.disposeAll()
+  })
+
   it('A2 registers the webui namespace with matching zh and en dictionaries', () => {
     const ctx = createFakeContext({ theme: { getTheme: () => snapshot() } })
     apply(ctx)

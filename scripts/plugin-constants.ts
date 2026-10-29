@@ -5,8 +5,8 @@
  *
  * One plugin carries three identifiers, each answering a different question:
  * - PLUGIN_ID `@lllzt/dsh-webui-framework`: the package name, and the id the host's loader keys the bundle by.
- * - PLUGIN_ROW_ID `pi-ui`: the row id of our `insert` entry in cordis.patch.yml's assembly table.
- * - `name = 'dsh-web-ui'` exported by src/client/index.ts: the cordis plugin name. src cannot
+ * - PLUGIN_ROW_ID `webui-framework`: the row id of our `insert` entry in cordis.patch.yml's assembly table.
+ * - `name = 'webui-framework'` exported by src/client/index.ts: the cordis plugin name. src cannot
  *   import from scripts/, so that correspondence is recorded here and nowhere in code.
  *
  * The test files (verify-bundle.test.ts and friends) keep their own independent expected values
@@ -19,7 +19,7 @@
 export const PLUGIN_ID = '@lllzt/dsh-webui-framework'
 
 /** The id of our row in cordis.patch.yml's last `insert` entry. */
-export const PLUGIN_ROW_ID = 'pi-ui'
+export const PLUGIN_ROW_ID = 'webui-framework'
 
 /** Module-table rows the host answers for every plugin; every other specifier is inlined. */
 export const SEED_MODULES: readonly string[] = [
