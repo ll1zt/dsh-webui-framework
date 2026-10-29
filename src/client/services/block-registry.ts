@@ -1,7 +1,9 @@
 /** Block and preset registry behind the `webuiLayout` service: validation, ordering, duplicate diagnostics. */
 import { Service, type Context } from '@deepseek-ai/cordis'
+import { createElement, type FunctionComponent } from 'react'
 import type {
   BlockComponent,
+  BlockInstanceProps,
   BlockMeta,
   Disposer,
   LayoutPreset,
@@ -62,6 +64,18 @@ function validate(kind: string, id: string, priority: number): void {
   }
 }
 
+function isFunctionComponent(component: BlockComponent): component is FunctionComponent<BlockInstanceProps> {
+  return component.prototype?.isReactComponent === undefined
+}
+
+/**
+ * A slot takes a function component while a BlockComponent may be a class: a class is wrapped,
+ * handing every prop through, and a function component is registered as it is.
+ */
+function asFunctionComponent(component: BlockComponent): FunctionComponent<BlockInstanceProps> {
+  return isFunctionComponent(component) ? component : (props) => createElement(component, props)
+}
+
 function ownerName(owner: Context): string {
   return owner.fiber.name || UNNAMED_OWNER
 }
@@ -96,11 +110,12 @@ export class BlockRegistry {
       this.#blocks.delete(meta.id)
       this.#notify()
     }
+    const slotComponent = asFunctionComponent(component)
     // owner.effect ties the slot entry and the metadata to the contributor's fiber, so unloading that plugin retracts both.
     const stop = owner.effect(() => {
       const unregister = owner.slots.register(
         { name: WEBUI_SLOT_KEYS[meta.scope], id: meta.id, priority: meta.priority, label: meta.title.en },
-        component as never,
+        slotComponent,
       )
       return () => {
         unregister()

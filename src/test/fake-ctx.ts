@@ -17,6 +17,7 @@ export interface FakeSlotRegistration {
     locale?: string
     store?: unknown
     children?: unknown
+    inject?: unknown
   }
   component: unknown
   locale?: string
@@ -96,7 +97,7 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
   const slots: FakeSlots = {
     register(options, component) {
       const registration: FakeSlotRegistration = { options: { name: String(options.name) }, component }
-      const { priority, locale, store, children } = options
+      const { priority, locale, store, children, inject } = options
       if (typeof priority === 'number') registration.options.priority = priority
       if (typeof options.key === 'string') registration.options.key = options.key
       if (typeof options.id === 'string') registration.options.id = options.id
@@ -113,6 +114,7 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
         registration.options.children = children
         registration.children = children
       }
+      if (inject !== undefined) registration.options.inject = inject
       registrations.push(registration)
       return track(() => {
         const index = registrations.indexOf(registration)
@@ -210,6 +212,8 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
   const reflect = { provide: (): (() => void) => () => {} }
 
   const fake = Object.assign({ slots, locale, reflect, effect, on, emit, plugin, activePlugins, disposeAll }, overrides)
+  // A real context points at its root; this one is its own root, so features can key shared state by it.
+  Object.assign(fake, { root: fake })
   // A cordis Context is a class whose private members no plain object can mirror, so this single cast is
   // the one place the fake claims the host type; every test then calls `apply(ctx)` without casting.
   return fake as unknown as FakeContext

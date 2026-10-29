@@ -1,4 +1,7 @@
 {
+  "dock.empty": "Nothing here yet",
+  "dock.session.empty": "No main session",
+  "dock.tab.close": "Close tab",
   "shell.error.copy": "Copy error",
   "shell.error.pageTitle": "The page crashed",
   "shell.error.regionTitle": "This area failed to load",

@@ -1,4 +1,7 @@
 {
+  "dock.empty": "还没有内容",
+  "dock.session.empty": "没有主会话",
+  "dock.tab.close": "关闭标签",
   "shell.error.copy": "复制错误",
   "shell.error.pageTitle": "页面出错了",
   "shell.error.regionTitle": "这一块内容出错了",
