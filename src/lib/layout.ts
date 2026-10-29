@@ -1,80 +1,32 @@
-import type { BlockKind } from './blocks.ts'
-import { BLOCK_CATALOG } from './blocks.ts'
+import type {
+  BlockMeta,
+  BlockRef,
+  LayoutNode,
+  LayoutPane,
+  LayoutPreset,
+  LayoutSize,
+  WebuiLayout,
+} from '@lllzt/dsh-webui-framework/contract'
 
-// The shape mirrors dockkit's LayoutState (split / pane / tabs / floats) one to
-// one, but this module stays dockkit-free: what is stored in a profile is this
-// format, not the library's (D40).
+// The shape mirrors dockkit's LayoutState (split / pane / tabs) one to one, but this module stays
+// dockkit-free: what is stored in a profile is the contract's format, not the library's (D40).
 
-export interface LayoutPxSize {
-  px: number
-  min: number
-  max: number
-}
-
-export interface LayoutFrSize {
-  fr: number
-}
-
-/** How much of its parent split a child takes: fixed pixels within bounds, or a share of the rest (D42). */
-export type LayoutSize = LayoutPxSize | LayoutFrSize
-
-/** One block instance; single-instance blocks have a `contentId` of `''`. */
-export interface BlockRef {
-  kind: BlockKind
-  contentId: string
-  title?: string
-}
-
-export interface LayoutPane {
-  kind: 'pane'
-  tabs: BlockRef[]
-  active: number
-}
-
-export interface LayoutSplit {
-  kind: 'split'
-  axis: 'row' | 'column'
-  children: LayoutNode[]
-  sizes: LayoutSize[]
-}
-
-export type LayoutNode = LayoutSplit | LayoutPane
-
-export interface WebuiLayout {
-  version: 1
-  root: LayoutNode
-  floats: readonly LayoutPane[]
+/** The blocks registered right now; `settled` says whether late registrations can still arrive. */
+export interface LayoutCatalog {
+  blocks: ReadonlyMap<string, BlockMeta>
+  settled: boolean
 }
 
 export interface ResolvedLayout {
   layout: WebuiLayout
-  /** True when the saved value differed from the layout returned. */
+  /** True when the layout returned differs from the value it was made from. */
   repaired: boolean
 }
 
-const FR_REST: LayoutFrSize = { fr: 1 }
+const FR_REST: LayoutSize = { fr: 1 }
 
-/** Sessions over files on the left, the session on the right. */
-export function defaultLayout(): WebuiLayout {
-  const single = (kind: BlockKind): LayoutPane => ({ kind: 'pane', tabs: [{ kind, contentId: '' }], active: 0 })
-  return {
-    version: 1,
-    root: {
-      kind: 'split',
-      axis: 'row',
-      children: [
-        {
-          kind: 'split',
-          axis: 'column',
-          children: [single('sessions'), single('files')],
-          sizes: [{ fr: 1 }, { px: 240, min: 120, max: 600 }],
-        },
-        single('session'),
-      ],
-      sizes: [{ px: 260, min: 180, max: 480 }, { fr: 1 }],
-    },
-    floats: [],
-  }
+export function emptyLayout(): WebuiLayout {
+  return { version: 1, root: null, activePane: [] }
 }
 
 // What a saved value looks like once its structure is checked; the contents of
@@ -115,6 +67,10 @@ function isSavedNode(value: unknown): value is SavedNode {
   )
 }
 
+function isIndexPath(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'number' && Number.isInteger(item))
+}
+
 function isPositiveFinite(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value) && value > 0
 }
@@ -129,40 +85,22 @@ function readSize(value: unknown): LayoutSize | undefined {
   return { px, min, max }
 }
 
-function clampSize(size: LayoutSize): LayoutSize {
+export function clampSize(size: LayoutSize): LayoutSize {
   return 'px' in size ? { px: Math.min(Math.max(size.px, size.min), size.max), min: size.min, max: size.max } : size
 }
 
-/** The size the default layout gives the node at `path` (child indices from the root), if it has one. */
-function defaultSizeAt(path: readonly number[]): LayoutSize | undefined {
-  let node = defaultLayout().root
-  let size: LayoutSize | undefined
-  for (const index of path) {
-    if (node.kind !== 'split') return undefined
-    const child = node.children[index]
-    if (child === undefined) return undefined
-    size = node.sizes[index]
-    node = child
-  }
-  return size
-}
-
-function resolveSize(value: unknown, path: readonly number[]): LayoutSize {
+/** An unusable size becomes the defaultSize of the only block in the pane, else a plain share. */
+function resolveSize(value: unknown, node: LayoutNode, catalog: LayoutCatalog): LayoutSize {
   const size = readSize(value)
-  return size === undefined ? (defaultSizeAt(path) ?? FR_REST) : clampSize(size)
+  if (size !== undefined) return clampSize(size)
+  const [only, ...others] = node.kind === 'pane' ? node.tabs : []
+  const preferred = only !== undefined && others.length === 0 ? catalog.blocks.get(only.blockId)?.defaultSize : undefined
+  const fallback = readSize(preferred)
+  return fallback === undefined ? FR_REST : clampSize(fallback)
 }
 
 function instanceKey(ref: BlockRef): string {
-  return BLOCK_CATALOG[ref.kind].multiInstance ? `${ref.kind}:${ref.contentId}` : ref.kind
-}
-
-function isKnownKind(kind: unknown): kind is BlockKind {
-  return typeof kind === 'string' && Object.hasOwn(BLOCK_CATALOG, kind)
-}
-
-/** Required blocks stay even when unregistered: the view shows an "unavailable" placeholder in place. */
-function isKept(kind: BlockKind, registered: ReadonlySet<BlockKind>): boolean {
-  return registered.has(kind) || !BLOCK_CATALOG[kind].closable
+  return JSON.stringify([ref.blockId, ref.contentId])
 }
 
 function sameData(a: unknown, b: unknown): boolean {
@@ -178,103 +116,127 @@ function sameData(a: unknown, b: unknown): boolean {
   return Object.is(a, b)
 }
 
-class Resolver {
-  private readonly seen = new Set<string>()
-  private readonly kinds = new Set<BlockKind>()
-
-  private readonly registered: ReadonlySet<BlockKind>
-
-  constructor(registered: ReadonlySet<BlockKind>) {
-    this.registered = registered
+/** `seen` collects the instances kept so far, so a later repeat of one is dropped. */
+function resolveRef(raw: unknown, catalog: LayoutCatalog, seen: Set<string>): BlockRef | undefined {
+  if (!isRecord(raw) || typeof raw['blockId'] !== 'string') return undefined
+  const blockId = raw['blockId']
+  const meta = catalog.blocks.get(blockId)
+  // Until the catalog is settled an unknown block may still register: its tab keeps its place.
+  if (meta === undefined && catalog.settled) return undefined
+  const { contentId } = raw
+  const ref: BlockRef = {
+    blockId,
+    contentId: (meta !== undefined && !meta.multiInstance) || typeof contentId !== 'string' ? '' : contentId,
   }
-
-  has(kind: BlockKind): boolean {
-    return this.kinds.has(kind)
-  }
-
-  /** `path` locates the node in the saved tree; it picks the default size for an unusable one. */
-  node(saved: SavedNode, path: readonly number[]): LayoutNode | undefined {
-    if (saved.kind === 'pane') return this.pane(saved)
-    const kept: { node: LayoutNode; size: LayoutSize }[] = []
-    saved.children.forEach((child, index) => {
-      const childPath = [...path, index]
-      const node = this.node(child, childPath)
-      if (node !== undefined) kept.push({ node, size: resolveSize(saved.sizes[index], childPath) })
-    })
-    const [only, ...rest] = kept
-    if (only === undefined) return undefined
-    // A lone survivor takes the split's place, and with it the size the parent gave the split.
-    if (rest.length === 0) return only.node
-    return { kind: 'split', axis: saved.axis, children: kept.map((k) => k.node), sizes: kept.map((k) => k.size) }
-  }
-
-  pane(saved: SavedPane): LayoutPane | undefined {
-    const tabs: BlockRef[] = []
-    let active = 0
-    saved.tabs.forEach((raw, index) => {
-      // The active tab moves with its block; if it is dropped, the next tab that survives takes over.
-      if (index === saved.active) active = tabs.length
-      const ref = this.ref(raw)
-      if (ref !== undefined) tabs.push(ref)
-    })
-    if (tabs.length === 0) return undefined
-    return { kind: 'pane', tabs, active: Math.min(active, tabs.length - 1) }
-  }
-
-  private ref(raw: unknown): BlockRef | undefined {
-    if (!isRecord(raw) || !isKnownKind(raw['kind']) || !isKept(raw['kind'], this.registered)) return undefined
-    const kind = raw['kind']
-    const { contentId, title } = raw
-    const ref: BlockRef = {
-      kind,
-      contentId: BLOCK_CATALOG[kind].multiInstance && typeof contentId === 'string' ? contentId : '',
-    }
-    if (typeof title === 'string') ref.title = title
-    const key = instanceKey(ref)
-    if (this.seen.has(key)) return undefined
-    this.seen.add(key)
-    this.kinds.add(kind)
-    return ref
-  }
+  const key = instanceKey(ref)
+  if (seen.has(key)) return undefined
+  seen.add(key)
+  return ref
 }
 
-/** Puts a missing required block at the slot the default layout gives it, directly under the root row. */
-function restoreRequired(root: LayoutNode, kind: BlockKind): LayoutNode {
-  const defaults = defaultLayout().root
-  const slots = defaults.kind === 'split' ? defaults.children : []
-  const index = slots.findIndex((slot) => slot.kind === 'pane' && slot.tabs.some((tab) => tab.kind === kind))
-  // A kind the default root row does not hold goes last, with a plain {fr:1}.
-  const slot = index >= 0 ? index : slots.length
-  const size = (defaults.kind === 'split' ? defaults.sizes[slot] : undefined) ?? FR_REST
-  const pane: LayoutPane = { kind: 'pane', tabs: [{ kind, contentId: '' }], active: 0 }
-  if (root.kind === 'split' && root.axis === 'row') {
-    const at = Math.min(slot, root.children.length)
-    return {
-      ...root,
-      children: root.children.toSpliced(at, 0, pane),
-      sizes: root.sizes.toSpliced(at, 0, size),
-    }
+function resolvePane(saved: SavedPane, catalog: LayoutCatalog, seen: Set<string>): LayoutPane | undefined {
+  const wanted = Number.isInteger(saved.active) ? Math.min(Math.max(saved.active as number, 0), saved.tabs.length - 1) : 0
+  const tabs: BlockRef[] = []
+  let active = 0
+  saved.tabs.forEach((raw, index) => {
+    // The active tab moves with its block; if it is dropped, the next tab that survives takes over.
+    if (index === wanted) active = tabs.length
+    const ref = resolveRef(raw, catalog, seen)
+    if (ref !== undefined) tabs.push(ref)
+  })
+  if (tabs.length === 0) return undefined
+  return { kind: 'pane', tabs, active: Math.min(active, tabs.length - 1) }
+}
+
+function resolveNode(saved: SavedNode, catalog: LayoutCatalog, seen: Set<string>): LayoutNode | undefined {
+  if (saved.kind === 'pane') return resolvePane(saved, catalog, seen)
+  const kept: { node: LayoutNode; size: LayoutSize }[] = []
+  saved.children.forEach((child, index) => {
+    const node = resolveNode(child, catalog, seen)
+    if (node !== undefined) kept.push({ node, size: resolveSize(saved.sizes[index], node, catalog) })
+  })
+  const [only, ...rest] = kept
+  if (only === undefined) return undefined
+  // A lone survivor takes the split's place, and with it the size the parent gave the split.
+  if (rest.length === 0) return only.node
+  return { kind: 'split', axis: saved.axis, children: kept.map((k) => k.node), sizes: kept.map((k) => k.size) }
+}
+
+function nodeAt(root: LayoutNode, path: readonly number[]): LayoutNode | undefined {
+  let node: LayoutNode | undefined = root
+  for (const index of path) {
+    if (node?.kind !== 'split') return undefined
+    node = node.children[index]
   }
-  // The row was lost (flattened away), so the survivor goes back to the first slot.
-  const first = (defaults.kind === 'split' ? defaults.sizes[0] : undefined) ?? FR_REST
-  return { kind: 'split', axis: 'row', children: [root, pane], sizes: [first, size] }
+  return node
+}
+
+function firstPanePath(root: LayoutNode): number[] {
+  const path: number[] = []
+  let node = root
+  while (node.kind === 'split') {
+    const child = node.children[0]
+    if (child === undefined) break
+    path.push(0)
+    node = child
+  }
+  return path
+}
+
+/** The active pane path as is when it points at a pane, else the path of the first pane. */
+function repairActivePane(root: LayoutNode | null, path: unknown): number[] {
+  if (root === null) return []
+  return isIndexPath(path) && nodeAt(root, path)?.kind === 'pane' ? [...path] : firstPanePath(root)
+}
+
+/** Rebuilds `node` with the node at `path` (child indices) replaced by `update` of it. */
+export function replaceAt(node: LayoutNode, path: readonly number[], update: (at: LayoutNode) => LayoutNode): LayoutNode {
+  const [head, ...rest] = path
+  if (head === undefined) return update(node)
+  if (node.kind !== 'split') return node
+  return { ...node, children: node.children.map((child, i) => (i === head ? replaceAt(child, rest, update) : child)) }
+}
+
+/** Opens `ref` as a new tab of the active pane and activates it; with no pane yet, as a new root pane. */
+export function appendTab(layout: WebuiLayout, ref: BlockRef): WebuiLayout {
+  const { root } = layout
+  if (root === null) return { version: 1, root: { kind: 'pane', tabs: [ref], active: 0 }, activePane: [] }
+  const activePane = repairActivePane(root, layout.activePane)
+  const next = replaceAt(root, activePane, (at) =>
+    at.kind === 'pane' ? { kind: 'pane', tabs: [...at.tabs, ref], active: at.tabs.length } : at,
+  )
+  return { version: 1, root: next, activePane }
 }
 
 /** Turns anything that was saved into a layout that can be rendered, and says whether it had to change it. */
-export function resolveLayout(saved: unknown, registered: ReadonlySet<BlockKind>): ResolvedLayout {
-  const fallback = (): ResolvedLayout => ({ layout: defaultLayout(), repaired: true })
-  if (!isRecord(saved) || saved['version'] !== 1 || !isSavedNode(saved['root'])) return fallback()
+export function resolveLayout(saved: unknown, catalog: LayoutCatalog): ResolvedLayout {
+  if (!isRecord(saved) || saved['version'] !== 1) return { layout: emptyLayout(), repaired: true }
+  const savedRoot = saved['root']
+  if (savedRoot !== null && !isSavedNode(savedRoot)) return { layout: emptyLayout(), repaired: true }
 
-  const resolver = new Resolver(registered)
-  let root = resolver.node(saved['root'], [])
-  // Nothing usable survived: start over from the default, minus what is not registered.
-  if (root === undefined) return { layout: resolveLayout(defaultLayout(), registered).layout, repaired: true }
+  const seen = new Set<string>()
+  const root = savedRoot === null ? null : (resolveNode(savedRoot, catalog, seen) ?? null)
+  let layout: WebuiLayout = { version: 1, root, activePane: repairActivePane(root, saved['activePane']) }
 
-  for (const spec of Object.values(BLOCK_CATALOG)) {
-    if (!spec.closable && !spec.multiInstance && !resolver.has(spec.kind)) root = restoreRequired(root, spec.kind)
+  // A block that cannot be closed must be on screen, so a missing one is opened where a new block would go.
+  for (const meta of catalog.blocks.values()) {
+    if (meta.closable || meta.multiInstance || seen.has(instanceKey({ blockId: meta.id, contentId: '' }))) continue
+    layout = appendTab(layout, { blockId: meta.id, contentId: '' })
   }
-  // Floats are always empty until floating panes are rendered: saved ones are discarded without being
-  // resolved, so a block living only there does not count as present and is restored into the root.
-  const layout: WebuiLayout = { version: 1, root, floats: [] }
   return { layout, repaired: !sameData(saved, layout) }
+}
+
+/**
+ * The layout to start from: the saved one, else the first preset (the caller sorted them), else the
+ * empty layout, each repaired. `repaired` compares with the saved value, or with the source when
+ * nothing was saved.
+ */
+export function chooseLayout(saved: unknown, presets: readonly LayoutPreset[], catalog: LayoutCatalog): ResolvedLayout {
+  if (saved !== undefined) {
+    const resolved = resolveLayout(saved, catalog)
+    if (resolved.layout.root !== null) return resolved
+  }
+  const source: unknown = presets[0]?.layout ?? emptyLayout()
+  const resolved = resolveLayout(source, catalog)
+  return saved === undefined ? resolved : { layout: resolved.layout, repaired: !sameData(saved, resolved.layout) }
 }
