@@ -18,3 +18,15 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 
 /** Copy function of this package's `webui` namespace: the only place its type is spelled, so a wrong key fails tsc. */
 export type WebuiTranslate = TranslateNS<'webui'>
+
+/** Slot keys of the block lists, by block scope: the only place the `webui.block.*` names are spelled. */
+export const WEBUI_SLOT_KEYS = { root: 'webui.block.root', session: 'webui.block.session' } as const
+
+declare module '@deepseek-ai/dsh-client-ui-slots' {
+  interface SlotMap {
+    /** Blocks of `root` scope: additive list the shell renders in the workspace. */
+    'webui.block.root': { kind: 'list'; scope: 'root' }
+    /** Blocks of `session` scope: additive list rendered inside the session area. */
+    'webui.block.session': { kind: 'list'; scope: 'session' }
+  }
+}

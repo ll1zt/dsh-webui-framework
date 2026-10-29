@@ -1,5 +1,6 @@
 /** Feature list of the browser half: the single place a new feature is added. */
 import type { Context } from '@deepseek-ai/cordis'
+import { layout } from './layout.ts'
 import { shell } from './shell.ts'
 import { theme } from './theme.ts'
 
@@ -16,4 +17,4 @@ export interface WebuiFeature {
   apply(ctx: Context): void
 }
 
-export const FEATURES: readonly WebuiFeature[] = [shell, theme]
+export const FEATURES: readonly WebuiFeature[] = [shell, theme, layout]
