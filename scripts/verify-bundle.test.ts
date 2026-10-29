@@ -8,7 +8,7 @@ import { checkBundleSource, verifyBundle } from './verify-bundle.ts'
 import type { BundleViolation } from './verify-bundle.ts'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const PLUGIN_ID = '@lllzt/dsh-web-ui'
+const PLUGIN_ID = '@lllzt/dsh-webui-framework'
 const SEED = [
   'react',
   'react/jsx-runtime',
@@ -117,7 +117,7 @@ describe('built bundles', () => {
     const selector = `style[data-plugin="${PLUGIN_ID}"]`
     expect(win.document.querySelectorAll(selector).length).toBe(1)
     const style = win.document.querySelector(selector)
-    expect(style?.getAttribute('data-plugin-css') ?? '').toMatch(/^@lllzt\/dsh-web-ui\/.+\.css$/)
+    expect(style?.getAttribute('data-plugin-css') ?? '').toMatch(/^@lllzt\/dsh-webui-framework\/.+\.css$/)
     const cssText = style?.textContent ?? ''
     expect(cssText.trim().length).toBeGreaterThan(0)
     expect(cssText).toContain('{')

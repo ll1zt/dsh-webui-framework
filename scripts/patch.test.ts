@@ -93,7 +93,7 @@ describe('cordis.patch.yml', () => {
     const entries = readPatch()
     expect(entries.filter((entry) => 'insert' in entry)).toHaveLength(1)
     expect(entries[entries.length - 1]).toEqual({
-      insert: [{ id: 'pi-ui', name: '@lllzt/dsh-web-ui' }],
+      insert: [{ id: 'pi-ui', name: '@lllzt/dsh-webui-framework' }],
     })
   })
 })
