@@ -19,6 +19,10 @@ const TEST_SUFFIXES = ['.test.ts', '.test.tsx', '.test.js', '.test.mjs'] as cons
 
 const LOCAL_DOC_SUFFIX = '.local.md'
 
+/** The contract ships as one hand-written declaration file; any other file under it would carry code. */
+const CONTRACT_DIR = 'contract'
+const CONTRACT_FILE = 'contract/index.d.ts'
+
 interface PackListing {
   files: string[]
   error: string | undefined
@@ -35,6 +39,7 @@ function isForbidden(file: string): boolean {
   const basename = parts[parts.length - 1] ?? file
   if (parts.slice(0, -1).some((segment) => FORBIDDEN_DIRS.has(segment))) return true
   if (basename.endsWith(LOCAL_DOC_SUFFIX)) return true
+  if (parts[0] === CONTRACT_DIR && parts.length > 1 && parts.join('/') !== CONTRACT_FILE) return true
   return parts.some((segment) => endsWithAny(segment, TEST_SUFFIXES))
 }
 
