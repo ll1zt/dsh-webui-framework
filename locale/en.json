@@ -1,4 +1,8 @@
 {
+  "blocks.files": "Files",
+  "blocks.session": "Session",
+  "blocks.sessions": "Sessions",
+  "blocks.viewer": "Viewer",
   "shell.error.copy": "Copy error",
   "shell.error.pageTitle": "The page crashed",
   "shell.error.regionTitle": "This area failed to load",
