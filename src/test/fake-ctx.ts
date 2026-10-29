@@ -206,7 +206,10 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
     feature.apply(fake as unknown as Context)
   }
 
-  const fake = Object.assign({ slots, locale, effect, on, emit, plugin, activePlugins, disposeAll }, overrides)
+  // Service subclasses announce themselves through `ctx.reflect.provide`; the fake needs no registry for them.
+  const reflect = { provide: (): (() => void) => () => {} }
+
+  const fake = Object.assign({ slots, locale, reflect, effect, on, emit, plugin, activePlugins, disposeAll }, overrides)
   // A cordis Context is a class whose private members no plain object can mirror, so this single cast is
   // the one place the fake claims the host type; every test then calls `apply(ctx)` without casting.
   return fake as unknown as FakeContext

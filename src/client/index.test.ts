@@ -38,6 +38,19 @@ describe('client apply', () => {
     expect(ctx.slots.entries('root')).toHaveLength(0)
   })
 
+  it('A5 the root registration declares the root and session block lists as children', () => {
+    const ctx = createFakeContext({ theme: { getTheme: () => snapshot() } })
+    apply(ctx)
+
+    const entry = ctx.slots.entries('root')[0]
+    if (entry === undefined) throw new Error('the root slot has no registration')
+    expect(entry.children).toMatchObject({
+      'webui.block.root': { kind: 'list', scope: 'root' },
+      'webui.block.session': { kind: 'list', scope: 'session' },
+    })
+    ctx.disposeAll()
+  })
+
   it('A4 the root registration carries no store', () => {
     const ctx = createFakeContext({ theme: { getTheme: () => snapshot() } })
     apply(ctx)

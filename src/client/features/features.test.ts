@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
-import { beforeEach, describe, expect, it } from 'vitest'
+import { Context } from '@deepseek-ai/cordis'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFakeContext } from '../../test/fake-ctx.ts'
 import * as entry from '../index.ts'
 import { FEATURES, type WebuiFeature } from './index.ts'
@@ -27,6 +28,7 @@ describe('FEATURES', () => {
     expect(new Set(names).size).toBe(names.length)
     expect(featureNamed('shell').inject).toEqual(['slots', 'locale'])
     expect(featureNamed('theme').inject).toEqual(['theme'])
+    expect(featureNamed('layout').inject).toEqual(['slots'])
   })
 })
 
@@ -49,5 +51,22 @@ describe('client apply without the theme service', () => {
     expect(ctx.activePlugins).not.toContain('theme')
     expect(ctx.activePlugins).toContain('shell')
     ctx.disposeAll()
+  })
+})
+
+describe('webuiLayout without the layout feature', () => {
+  it('A6 a contributor waiting on webuiLayout never starts while the shell still registers root', async () => {
+    const fake = createFakeContext()
+    const root = new Context()
+    root.provide('slots', fake.slots)
+    root.provide('locale', fake.locale)
+    const started = vi.fn()
+
+    const waiting = root.inject(['webuiLayout'], started)
+    await root.plugin(featureNamed('shell'))
+
+    expect(started).not.toHaveBeenCalled()
+    expect(fake.slots.entries('root')).toHaveLength(1)
+    await waiting.dispose()
   })
 })
