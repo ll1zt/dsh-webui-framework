@@ -22,7 +22,7 @@ function textSelectors(test) {
 }
 
 const PLUGIN_ID_GUARDS = [
-  ...textSelectors('="@lllzt/dsh-web-ui"').map((selector) => ({
+  ...textSelectors('="@lllzt/dsh-webui-framework"').map((selector) => ({
     selector,
     message: 'The plugin id is named once, in scripts/plugin-constants.ts (PLUGIN_ID); import it from there.',
   })),

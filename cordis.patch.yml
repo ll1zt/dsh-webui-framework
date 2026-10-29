@@ -65,4 +65,4 @@
 # ── 插入我们的行（loader id 由包名决定）
 - insert:
     - id: pi-ui
-      name: '@lllzt/dsh-web-ui'
+      name: '@lllzt/dsh-webui-framework'

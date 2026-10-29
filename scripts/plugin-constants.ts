@@ -4,7 +4,7 @@
  * another.
  *
  * One plugin carries three identifiers, each answering a different question:
- * - PLUGIN_ID `@lllzt/dsh-web-ui`: the package name, and the id the host's loader keys the bundle by.
+ * - PLUGIN_ID `@lllzt/dsh-webui-framework`: the package name, and the id the host's loader keys the bundle by.
  * - PLUGIN_ROW_ID `pi-ui`: the row id of our `insert` entry in cordis.patch.yml's assembly table.
  * - `name = 'dsh-web-ui'` exported by src/client/index.ts: the cordis plugin name. src cannot
  *   import from scripts/, so that correspondence is recorded here and nowhere in code.
@@ -16,7 +16,7 @@
  */
 
 /** The loader module-table id, the id stamped into the loader call, and the owner of our injected styles. */
-export const PLUGIN_ID = '@lllzt/dsh-web-ui'
+export const PLUGIN_ID = '@lllzt/dsh-webui-framework'
 
 /** The id of our row in cordis.patch.yml's last `insert` entry. */
 export const PLUGIN_ROW_ID = 'pi-ui'

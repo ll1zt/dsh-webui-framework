@@ -1,7 +1,7 @@
 {
-  "name": "@lllzt/dsh-web-ui",
+  "name": "@lllzt/dsh-webui-framework",
   "version": "0.0.0",
-  "description": "A pi-web style whole-page UI for the dsh (deepseek-harness) Web frontend",
+  "description": "A whole-page UI framework for the dsh (deepseek-harness) Web frontend",
   "license": "MIT",
   "type": "module",
   "main": "lib/index.js",
