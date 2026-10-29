@@ -54,7 +54,7 @@ export interface ResolvedLayout {
 
 const FR_REST: LayoutFrSize = { fr: 1 }
 
-/** The pi-web arrangement: sessions over files on the left, the session on the right. */
+/** Sessions over files on the left, the session on the right. */
 export function defaultLayout(): WebuiLayout {
   const single = (kind: BlockKind): LayoutPane => ({ kind: 'pane', tabs: [{ kind, contentId: '' }], active: 0 })
   return {

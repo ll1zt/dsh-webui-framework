@@ -1,4 +1,4 @@
-/** Module augmentations for slot keys and session-scoped standard props (docs/03 §2.3). */
+/** Module augmentations for slot keys and session-scoped standard props. */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type zhDict from '../../locale/zh.json'
 

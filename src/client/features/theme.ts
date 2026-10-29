@@ -1,4 +1,4 @@
-/** Theme feature: applies the active theme to the page and follows `theme/change` (docs/03 §15.1). */
+/** Theme feature: applies the active theme to the page and follows `theme/change`. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
 import { ThemePresenter } from '../services/theme-presenter.ts'

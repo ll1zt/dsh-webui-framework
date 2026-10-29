@@ -21,7 +21,7 @@ export const PLUGIN_ID = '@lllzt/dsh-webui-framework'
 /** The id of our row in cordis.patch.yml's last `insert` entry. */
 export const PLUGIN_ROW_ID = 'pi-ui'
 
-/** Module-table rows the host answers for every plugin; every other specifier is inlined (02 §8.2). */
+/** Module-table rows the host answers for every plugin; every other specifier is inlined. */
 export const SEED_MODULES: readonly string[] = [
   'react',
   'react/jsx-runtime',

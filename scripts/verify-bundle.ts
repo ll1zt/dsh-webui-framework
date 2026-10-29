@@ -6,7 +6,7 @@ import ts from 'typescript'
 import { isInvokedAsScript, messageOf } from './cli-utils.ts'
 import { PLUGIN_ID, isSeedModule } from './plugin-constants.ts'
 
-/** 1.5 MiB of gzipped client code is what the shell's boot budget allows (03 §1.5). */
+/** 1.5 MiB of gzipped client code is what the shell's boot budget allows. */
 const DEFAULT_BUDGET_BYTES = 1_572_864
 
 export type BundleViolationCode =

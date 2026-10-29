@@ -1,4 +1,4 @@
-/** The `root` slot component: the whole-page owner (docs/02 §6). */
+/** The `root` slot component: the whole-page owner. */
 import type { ReactNode } from 'react'
 import type { PropsLocale, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
@@ -13,8 +13,6 @@ type AppProps = PropsRuntime<'root'> & PropsStore<PageStoreHandle> & PropsLocale
  * The root registration's component: an empty root container behind the
  * whole-page boundary, so a crash in the page's own render shows the error panel
  * instead of a blank page.
- * @param props - framework-injected store and locale seats.
- * @returns the whole page, or the whole-page error panel.
  */
 export function App({ t }: AppProps): ReactNode {
   return (

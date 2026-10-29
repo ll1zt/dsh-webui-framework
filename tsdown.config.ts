@@ -11,7 +11,7 @@ const PACKAGE_ROOT = import.meta.dirname
 
 /**
  * The host loads the bundle from a classic <script> tag, so the file body is
- * exactly one `window.__ModuleLoader__.load(...)` call (02 §8.1). These strings
+ * exactly one `window.__ModuleLoader__.load(...)` call. These strings
  * are the contract; {@link loaderWrapper} writes them byte-exact.
  */
 const BANNER = `window.__ModuleLoader__.load({ id: ${JSON.stringify(PLUGIN_ID)}, factory: (require) => {`
@@ -139,7 +139,7 @@ const clientHalf: UserConfig = {
     alwaysBundle: (specifier: string) => !isSeedModule(specifier),
   },
   // tsdown builds a CommonJS output on the node platform, so the browser
-  // resolution an inlined dependency needs must be stated here (03 §1.2).
+  // resolution an inlined dependency needs must be stated here.
   inputOptions: {
     resolve: {
       conditionNames: ['production', 'browser', 'import', 'module', 'default'],
