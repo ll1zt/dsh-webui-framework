@@ -2,7 +2,7 @@ import { isInvokedAsScript, messageOf } from './cli-utils.ts'
 import { PLUGIN_ID } from './plugin-constants.ts'
 
 /**
- * One real-host smoke for the rc.3 setup: does a running dsh host carry this plugin in its boot
+ * One real-host smoke: does a running dsh host carry this plugin in its boot
  * roster and serve its bundle? The host boots from a roster injected into the page, and a page
  * whose roster lacks the plugin boots without it, so the roster and the bundle are read directly.
  *
