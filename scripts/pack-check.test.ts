@@ -145,3 +145,25 @@ describe('package manifest deliverable scripts', () => {
     expect(scripts['pack:check']).toBe('node scripts/pack-check.ts')
   })
 })
+
+describe('contract subpath', () => {
+  interface ContractManifest {
+    exports?: Record<string, unknown>
+    files?: string[]
+  }
+
+  const manifest = (): ContractManifest =>
+    JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as ContractManifest
+
+  it('A4 exports ./contract with the types condition only and packs the .d.ts', () => {
+    expect(manifest().exports?.['./contract']).toEqual({ types: './contract/index.d.ts' })
+    expect(manifest().files).toContain('contract/index.d.ts')
+  })
+
+  it('A4 pack-check allows contract/index.d.ts and reports a .js under contract/ as forbidden', () => {
+    expect(checkPackFiles([...COMPLIANT, 'contract/index.d.ts'])).toEqual([])
+    expect(pairs(checkPackFiles([...COMPLIANT, 'contract/index.d.ts', 'contract/index.js']))).toEqual([
+      'contract/index.js|forbidden',
+    ])
+  })
+})
