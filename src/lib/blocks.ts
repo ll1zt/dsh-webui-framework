@@ -1,4 +1,4 @@
-/** The closed set of block types; adding one starts in design §15.2. */
+/** The closed set of block types. */
 export type BlockKind = 'sessions' | 'files' | 'session' | 'viewer'
 
 /** What a block is, independent of where the layout puts it. */

@@ -42,7 +42,7 @@ describe('resolveLayout', () => {
     expect(result.repaired).toBe(false)
   })
 
-  it('A1 defaultLayout is the pi-web arrangement', () => {
+  it('A1 defaultLayout puts sessions over files on the left and the session on the right', () => {
     expect(defaultLayout()).toEqual(layoutOf(row([leftColumn(), pane('session')], [LEFT, { fr: 1 }])))
   })
 

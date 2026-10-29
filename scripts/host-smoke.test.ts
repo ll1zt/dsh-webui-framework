@@ -25,7 +25,12 @@ interface Reply {
 type Routes = Record<string, Reply>
 
 const bootHtml = (entries: unknown[]): string => {
-  const boot = { rev: '03bfb81d7dfb', release: { version: '0.2.1-rc.3', commit: '1f81c04' }, entries, batches: [] }
+  const boot = {
+    rev: '03bfb81d7dfb',
+    release: { version: '0.2.2-alpha.2', commit: 'f3803c9697' },
+    entries,
+    batches: [],
+  }
   return `<!doctype html>\n<html><head><base href="./"></head><body>\n<script>globalThis["__DSH_BOOT__"] = ${JSON.stringify(boot)}</script>\n</body></html>`
 }
 

@@ -1,4 +1,4 @@
-/** Shell feature: owns the `webui` copy namespace and takes the `root` seat (docs/03 §15.1). */
+/** Shell feature: owns the `webui` copy namespace and takes the `root` seat. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'

@@ -1,5 +1,5 @@
 /*
- * pi token map (design doc 03 §3.2). Declared on body rather than on the document
+ * Theme token map. Declared on body rather than on the document
  * element: the dsw dark palette selects body[data-ds-dark-theme], and theme overrides
  * are inline variables on body, so var(--dsw-*) must resolve there to see either.
  */

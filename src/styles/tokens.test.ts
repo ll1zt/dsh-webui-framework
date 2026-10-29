@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-/** The 21 pi tokens the stylesheet defines on body (design doc 03 §3.2). */
-const PI_TOKENS = [
+/** The 21 tokens the stylesheet defines on body. */
+const TOKENS = [
   '--bg',
   '--bg-panel',
   '--bg-subtle',
@@ -53,8 +53,8 @@ for (const [, name = '', value = ''] of bodyBlock.matchAll(/(--[\w-]+)\s*:\s*([^
 }
 
 describe('tokens.css', () => {
-  it('A5 defines all 21 pi tokens inside the body rule', () => {
-    expect(PI_TOKENS.filter((name) => !declared.has(name))).toEqual([])
+  it('A5 defines all 21 tokens inside the body rule', () => {
+    expect(TOKENS.filter((name) => !declared.has(name))).toEqual([])
   })
 
   it('A5 colour tokens reference the dsw alias layer', () => {

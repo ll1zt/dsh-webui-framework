@@ -7,36 +7,27 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import type { WebuiTranslate } from '../../client/types.ts'
 
-/** The shell areas a crash can be contained to. */
 export type RegionName = 'sidebar' | 'topbar' | 'main' | 'right'
 
-/** Diagnostic prefix of every caught crash. */
 const LOG_PREFIX = '[dsh-web-ui]'
 
-/** Props of {@link RegionBoundary}. */
 export interface RegionBoundaryProps {
   region: RegionName
   children: ReactNode
   t?: WebuiTranslate | undefined
 }
 
-/** Props of {@link AppErrorBoundary}. */
 interface AppErrorBoundaryProps {
   children: ReactNode
   t?: WebuiTranslate | undefined
 }
 
-/** State of both boundaries: the caught error, if any. */
 interface BoundaryState {
   error: Error | undefined
 }
 
 /**
- * Resolve copy through the injected seat, falling back to English.
- * @param t - copy seat, absent when the owning registration declared no locale.
- * @param key - dictionary key.
- * @param fallback - English text used when there is no seat.
- * @returns the text to show.
+ * Resolve copy through the injected seat, falling back to English when the owning registration declared no locale.
  */
 function shellText(t: WebuiTranslate | undefined, key: Parameters<WebuiTranslate>[0], fallback: string): string {
   return t?.(key) ?? fallback
@@ -44,8 +35,6 @@ function shellText(t: WebuiTranslate | undefined, key: Parameters<WebuiTranslate
 
 /**
  * Normalize a thrown value so the card can always render a message.
- * @param thrown - whatever the subtree threw.
- * @returns an Error carrying at least a message.
  */
 function toError(thrown: unknown): Error {
   return thrown instanceof Error ? thrown : new Error(String(thrown))
@@ -54,7 +43,6 @@ function toError(thrown: unknown): Error {
 /**
  * Hand a caught error's message and stack to the clipboard. A failure card may
  * never throw for a missing clipboard, so absence and rejection are both ignored.
- * @param error - the caught error, absent while nothing has crashed.
  */
 function copyErrorText(error: Error | undefined): void {
   if (error === undefined) return
@@ -64,8 +52,6 @@ function copyErrorText(error: Error | undefined): void {
 
 /**
  * Show the crash of one region in place of its content, keeping siblings alive.
- * @param props - the region name, its content, and the copy seat.
- * @returns the region content, or the error card.
  */
 export class RegionBoundary extends Component<RegionBoundaryProps, BoundaryState> {
   override state: BoundaryState = { error: undefined }
@@ -110,8 +96,6 @@ export class RegionBoundary extends Component<RegionBoundaryProps, BoundaryState
 /**
  * Show a crash of the whole shell: the page explains itself instead of going
  * blank, and the reader can reload it.
- * @param props - the page content and the copy seat.
- * @returns the page content, or the whole-page error panel.
  */
 export class AppErrorBoundary extends Component<AppErrorBoundaryProps, BoundaryState> {
   override state: BoundaryState = { error: undefined }
