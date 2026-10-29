@@ -49,7 +49,7 @@ afterEach(() => {
 })
 
 describe('checkPackFiles', () => {
-  it('TestPack_A1 reports every required entry a list is missing', () => {
+  it('A1 reports every required entry a list is missing', () => {
     expect(checkPackFiles(COMPLIANT)).toEqual([])
 
     for (const required of ['package.json', 'lib/index.js', 'lib/client.js', 'cordis.patch.yml']) {
@@ -68,7 +68,7 @@ describe('checkPackFiles', () => {
     ])
   })
 
-  it('TestPack_A1 rejects source, docs, scripts and dependency paths plus local and test files', () => {
+  it('A1 rejects source, docs, scripts and dependency paths plus local and test files', () => {
     const forbidden = [
       'src/a.ts',
       'src/client/index.ts',
@@ -87,7 +87,7 @@ describe('checkPackFiles', () => {
     }
   })
 
-  it('TestPack_A1 accepts a compliant list that also carries allowed files', () => {
+  it('A1 accepts a compliant list that also carries allowed files', () => {
     const allowed = [
       'lib/client.js.map',
       'lib/client.abc123.js',
@@ -101,7 +101,7 @@ describe('checkPackFiles', () => {
     expect(checkPackFiles([...COMPLIANT, 'lib/client.js.map', 'locale/en.json'])).toEqual([])
   })
 
-  it('TestPack_A1 cli exits 1 and names the offending file for a forbidden packed path', () => {
+  it('A1 cli exits 1 and names the offending file for a forbidden packed path', () => {
     const dir = makePackageFixture({
       'package.json': MANIFEST,
       'lib/index.js': 'export const apply = () => {}\n',
@@ -117,7 +117,7 @@ describe('checkPackFiles', () => {
     expect(output).toContain('forbidden')
   })
 
-  it('TestPack_A1 cli exits 0 for a package whose packed files are all allowed', () => {
+  it('A1 cli exits 0 for a package whose packed files are all allowed', () => {
     const dir = makePackageFixture({
       'package.json': MANIFEST,
       'lib/index.js': 'export const apply = () => {}\n',
@@ -139,7 +139,7 @@ describe('package manifest deliverable scripts', () => {
 
   const manifest = (): Manifest => JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as Manifest
 
-  it('TestPack_A2 declares prepack as npm run build and pack:check as the script run', () => {
+  it('A2 declares prepack as npm run build and pack:check as the script run', () => {
     const scripts = manifest().scripts ?? {}
     expect(scripts.prepack).toBe('npm run build')
     expect(scripts['pack:check']).toBe('node scripts/pack-check.ts')

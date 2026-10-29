@@ -16,7 +16,7 @@ describe('ErrorBoundary', () => {
     Reflect.deleteProperty(navigator, 'clipboard')
   })
 
-  it('TestBoundary_A5 shows the whole-page panel and reloads the window', () => {
+  it('A5 shows the whole-page panel and reloads the window', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const writeText = vi.fn((_text: string) => Promise.resolve())
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
@@ -39,7 +39,7 @@ describe('ErrorBoundary', () => {
     expect(writeText).not.toHaveBeenCalled()
   })
 
-  it('TestBoundary_A6 copies the error message and stack to the clipboard', () => {
+  it('A6 copies the error message and stack to the clipboard', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const writeText = vi.fn((_text: string) => Promise.resolve())
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })

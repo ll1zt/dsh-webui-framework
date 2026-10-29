@@ -63,7 +63,7 @@ describe('built bundles', () => {
     await ensureBuilt()
   }, 240_000)
 
-  it('TestBundle_A1_client_bundle_is_one_loader_call_with_banner_and_footer', () => {
+  it('A1 client bundle is one loader call with banner and footer', () => {
     expect(existsSync(join(ROOT, 'lib/client.js'))).toBe(true)
     const source = read('lib/client.js')
     expect(source.slice(0, BANNER.length)).toBe(BANNER)
@@ -71,13 +71,13 @@ describe('built bundles', () => {
     expect(trimmed.slice(-FOOTER.length)).toBe(FOOTER)
   })
 
-  it('TestBundle_A1_node_half_exports_apply_after_import', async () => {
+  it('A1 node half exports apply after import', async () => {
     expect(existsSync(join(ROOT, 'lib/index.js'))).toBe(true)
     const nodeHalf = (await import(pathToFileURL(join(ROOT, 'lib/index.js')).href)) as { apply?: unknown }
     expect(typeof nodeHalf.apply).toBe('function')
   })
 
-  it('TestBundle_A2_built_bundle_passes_the_offline_contract', async () => {
+  it('A2 built bundle passes the offline contract', async () => {
     const report = await verifyBundle(join(ROOT, 'lib'))
     expect(report.violations).toEqual([])
     expect(report.id).toBe(PLUGIN_ID)
@@ -85,7 +85,7 @@ describe('built bundles', () => {
     expect(report.externalRequires.filter((specifier: string) => !SEED.includes(specifier))).toEqual([])
   })
 
-  it('TestBundle_A4_inlined_css_is_injected_once_into_the_document', () => {
+  it('A4 inlined css is injected once into the document', () => {
     const bundle = read('lib/client.js')
     const cssFiles = readdirSync(join(ROOT, 'src/styles')).filter((file) => file.endsWith('.css'))
     expect(cssFiles.length).toBeGreaterThan(0)
@@ -128,21 +128,21 @@ describe('built bundles', () => {
 })
 
 describe('checkBundleSource', () => {
-  it('TestBundle_A3_top_level_module_syntax', () => {
+  it('A3 top level module syntax', () => {
     expect(codes(checkBundleSource('import { useState } from "react"\n'))).toContain('top-level-module-syntax')
     expect(codes(checkBundleSource('export const answer = 42\n'))).toContain('top-level-module-syntax')
   })
 
-  it('TestBundle_A3_import_meta', () => {
+  it('A3 import meta', () => {
     expect(codes(checkBundleSource('var meta = import.meta;\n'))).toContain('import-meta')
   })
 
-  it('TestBundle_A3_foreign_require', () => {
+  it('A3 foreign require', () => {
     const source = 'var session = require("@deepseek-ai/dsh-client-ui-session");\n'
     expect(codes(checkBundleSource(source))).toContain('foreign-require')
   })
 
-  it('TestBundle_A3_parse_error', () => {
+  it('A3 parse error', () => {
     expect(codes(checkBundleSource('var broken = ;\n'))).toContain('parse-error')
   })
 })
@@ -153,7 +153,7 @@ describe('package manifest', () => {
     exports?: Record<string, { default?: string }>
   }
 
-  it('TestBundle_A5_declares_web_platform_and_bundle_exports', () => {
+  it('A5 declares web platform and bundle exports', () => {
     const manifest = JSON.parse(read('package.json')) as PackageManifest
     expect(manifest.dsh?.client?.platform).toBe('web')
     expect(manifest.exports?.['./client']?.default).toBe('./lib/client.js')
@@ -162,24 +162,24 @@ describe('package manifest', () => {
 })
 
 describe('verify-bundle CLI and budget', () => {
-  it('TestBundle_A6_cli_exits_1_and_prints_the_violation_code', () => {
+  it('A6 cli exits 1 and prints the violation code', () => {
     const result = runCli('scripts/fixtures/violating')
     expect(result.status).toBe(1)
     expect(`${result.stdout ?? ''}${result.stderr ?? ''}`).toContain('foreign-require')
   })
 
-  it('TestBundle_A6_cli_exits_0_for_a_conforming_bundle', () => {
+  it('A6 cli exits 0 for a conforming bundle', () => {
     const result = runCli('scripts/fixtures/valid')
     expect(`${result.stdout ?? ''}${result.stderr ?? ''}`).not.toContain('foreign-require')
     expect(result.status).toBe(0)
   })
 
-  it('TestBundle_A6_reports_size_budget_for_a_tiny_budget', async () => {
+  it('A6 reports size budget for a tiny budget', async () => {
     const report = await verifyBundle(join(ROOT, 'scripts/fixtures/valid'), { budgetBytes: 1 })
     expect(codes(report.violations)).toContain('size-budget')
   })
 
-  it('verifyBundle rejects a missing libDir instead of returning an empty report', async () => {
+  it('A1 verifyBundle rejects a missing libDir instead of returning an empty report', async () => {
     await expect(verifyBundle(join(ROOT, 'scripts/fixtures/does-not-exist'))).rejects.toThrow(/does-not-exist/)
   })
 })
