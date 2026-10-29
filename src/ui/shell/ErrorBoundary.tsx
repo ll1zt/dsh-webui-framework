@@ -8,7 +8,7 @@ import { Component, type ErrorInfo, type ReactNode } from 'react'
 import type { WebuiTranslate } from '../../client/types.ts'
 
 /** The shell areas a crash can be contained to. */
-export type RegionName = 'sidebar' | 'topbar' | 'main' | 'right' | 'composer' | 'dialogs'
+export type RegionName = 'sidebar' | 'topbar' | 'main' | 'right'
 
 /** Diagnostic prefix of every caught crash. */
 const LOG_PREFIX = '[dsh-web-ui]'

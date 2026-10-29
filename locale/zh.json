@@ -1,8 +1,4 @@
 {
-  "blocks.files": "文件",
-  "blocks.session": "会话",
-  "blocks.sessions": "会话列表",
-  "blocks.viewer": "文件查看",
   "shell.error.copy": "复制错误",
   "shell.error.pageTitle": "页面出错了",
   "shell.error.regionTitle": "这一块内容出错了",
