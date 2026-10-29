@@ -10,7 +10,16 @@ const workflowText = readFileSync(join(ROOT, '.forgejo/workflows/ci.yml'), 'utf8
 const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
   scripts?: Record<string, string>
   engines?: { node?: string }
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
 }
+
+/** Host packages pinned to the alpha.2 baseline (D57). */
+const HOST_PIN = '0.2.2-alpha.2'
+const CORDIS_PIN = '4.0.6-alpha.1'
+
+/** The only runtime dependency the Node half may declare (D38). */
+const RUNTIME_ALLOW = ['@deepseek-ai/schemastery']
 
 interface Step {
   name?: string
@@ -58,5 +67,24 @@ describe('npm run gate 是门禁唯一定义', () => {
     const match = /^>=(\d+)$/.exec(pkg.engines?.node ?? '')
     expect(match).not.toBeNull()
     expect(Number(match?.[1])).toBeGreaterThanOrEqual(24)
+  })
+
+  it('A5 pins every @deepseek-ai host package to the alpha.2 baseline and cordis to its own pin', () => {
+    const all = { ...pkg.dependencies, ...pkg.devDependencies }
+    const host = Object.entries(all).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
+    expect(host.length).toBeGreaterThan(0)
+    expect(host.filter(([, version]) => version !== HOST_PIN)).toEqual([])
+    expect(all['@deepseek-ai/cordis']).toBe(CORDIS_PIN)
+  })
+
+  it('A6 dependencies lists only the Node half runtime allow-list', () => {
+    const names = Object.keys(pkg.dependencies ?? {})
+    expect(names.filter((name) => !RUNTIME_ALLOW.includes(name))).toEqual([])
+  })
+
+  it('A7 .gitignore anchors lib at the repo root so src/lib is not ignored', () => {
+    const lines = readFileSync(join(ROOT, '.gitignore'), 'utf8').split('\n')
+    expect(lines).toContain('/lib')
+    expect(lines).not.toContain('lib')
   })
 })

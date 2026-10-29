@@ -36,6 +36,22 @@ const STORAGE_PREFIX_GUARDS = textSelectors('=/^dsh-web-ui:/').map((selector) =>
   message:
     "Storage keys (the 'dsh-web-ui:' prefix) are built only in src/lib/storage-keys.ts; import a key from there.",
 }))
+const SLOT_KEY_GUARDS = textSelectors('=/^webui[.]/').map((selector) => ({
+  selector,
+  message: 'Slot keys (the webui. prefix) are declared only in src/client/types.ts.',
+}))
+const HTML_SINK_GUARDS = [
+  {
+    selector: 'JSXAttribute[name.name="dangerouslySetInnerHTML"]',
+    message: 'Unsanitized HTML is not allowed. Do not use dangerouslySetInnerHTML.',
+  },
+]
+const COMPONENT_CTX_GUARDS = [
+  {
+    selector: 'Identifier[name="ctx"]',
+    message: 'Components do not receive or close over ctx. Data and actions arrive through props.',
+  },
+]
 // Test titles open with their acceptance item: `A<n> ` then a lowercase description.
 const TEST_TITLE_GUARDS = [
   {
@@ -55,6 +71,8 @@ export default tseslint.config(
     rules: {
       ...reactHooks.configs.recommended.rules,
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'error',
+      'no-warning-comments': ['error', { terms: ['todo', 'fixme'], location: 'start' }],
       'no-restricted-imports': [
         'error',
         {
@@ -91,12 +109,43 @@ export default tseslint.config(
   },
   {
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/lib/storage-keys.ts', '**/*.test.*'],
-    rules: { 'no-restricted-syntax': ['error', ...STORAGE_PREFIX_GUARDS, ...PLUGIN_ID_GUARDS] },
+    ignores: ['src/lib/storage-keys.ts', 'src/client/types.ts', '**/*.test.*'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...STORAGE_PREFIX_GUARDS,
+        ...PLUGIN_ID_GUARDS,
+        ...SLOT_KEY_GUARDS,
+        ...HTML_SINK_GUARDS,
+      ],
+    },
+  },
+  {
+    // src/client/types.ts is the one module allowed to name slot keys, so it drops that one guard.
+    files: ['src/client/types.ts'],
+    rules: {
+      'no-restricted-syntax': ['error', ...STORAGE_PREFIX_GUARDS, ...PLUGIN_ID_GUARDS, ...HTML_SINK_GUARDS],
+    },
+  },
+  {
+    // Components never see ctx. This block replaces the src block's rule list, so the shared guards
+    // are repeated here.
+    files: ['src/ui/**/*.{ts,tsx}', 'src/client/entries/**/*.{ts,tsx}'],
+    ignores: ['**/*.test.*'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...STORAGE_PREFIX_GUARDS,
+        ...PLUGIN_ID_GUARDS,
+        ...SLOT_KEY_GUARDS,
+        ...HTML_SINK_GUARDS,
+        ...COMPONENT_CTX_GUARDS,
+      ],
+    },
   },
   {
     files: ['**/*.test.{ts,tsx}'],
-    rules: { 'no-restricted-syntax': ['error', ...TEST_TITLE_GUARDS] },
+    rules: { 'no-restricted-syntax': ['error', ...TEST_TITLE_GUARDS, ...HTML_SINK_GUARDS] },
   },
   {
     files: ['scripts/**/*.{js,mjs,ts}', '*.config.{js,ts}'],
