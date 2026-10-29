@@ -54,6 +54,13 @@ export interface FakeContextInspection {
   effect(callback: () => void | (() => void), label?: string): void
   on(event: string, listener: (...args: unknown[]) => void): () => void
   emit(event: string, ...args: unknown[]): void
+  /**
+   * Load a feature the way cordis does: `feature.apply(ctx)` runs only when every service in `feature.inject`
+   * exists on this context; otherwise the feature stays inactive and nothing is applied.
+   */
+  plugin(feature: { name?: string; inject?: readonly string[]; apply(ctx: Context): void }): void
+  /** Names of the features `plugin` activated, in activation order. */
+  readonly activePlugins: readonly string[]
   /** Dispose everything collected, in reverse order, and empty every record. */
   disposeAll(): void
 }
@@ -73,6 +80,7 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
   const injected: { key: string; callback: () => unknown }[] = []
   const providedRoots: unknown[] = []
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>()
+  const activePlugins: string[] = []
 
   const track = (dispose: () => void): (() => void) => {
     let live = true
@@ -182,9 +190,23 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
     injected.length = 0
     providedRoots.length = 0
     listeners.clear()
+    activePlugins.length = 0
   }
 
-  const fake = Object.assign({ slots, locale, effect, on, emit, disposeAll }, overrides)
+  // Defined on the merged object so a feature sees the services overrides add; overrides may also replace `plugin`.
+  const plugin = (feature: { name?: string; inject?: readonly string[]; apply(ctx: Context): void }): void => {
+    const services = fake as unknown as Record<string, unknown>
+    if ((feature.inject ?? []).some((service) => services[service] === undefined)) return
+    const name = feature.name ?? ''
+    activePlugins.push(name)
+    track(() => {
+      const index = activePlugins.indexOf(name)
+      if (index >= 0) activePlugins.splice(index, 1)
+    })
+    feature.apply(fake as unknown as Context)
+  }
+
+  const fake = Object.assign({ slots, locale, effect, on, emit, plugin, activePlugins, disposeAll }, overrides)
   // A cordis Context is a class whose private members no plain object can mirror, so this single cast is
   // the one place the fake claims the host type; every test then calls `apply(ctx)` without casting.
   return fake as unknown as FakeContext
