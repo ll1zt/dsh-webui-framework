@@ -89,11 +89,11 @@ describe('cordis.patch.yml', () => {
     expect(sorted(ids)).toEqual(sorted(DISABLED_ROW_IDS))
   })
 
-  it('A2 ends with one insert row of pi ui', () => {
+  it('A2 ends with one insert row of webui-framework', () => {
     const entries = readPatch()
     expect(entries.filter((entry) => 'insert' in entry)).toHaveLength(1)
     expect(entries[entries.length - 1]).toEqual({
-      insert: [{ id: 'pi-ui', name: '@lllzt/dsh-webui-framework' }],
+      insert: [{ id: 'webui-framework', name: '@lllzt/dsh-webui-framework' }],
     })
   })
 })

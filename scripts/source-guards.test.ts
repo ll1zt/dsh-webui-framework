@@ -40,12 +40,15 @@ describe('src value imports of host packages', () => {
 })
 
 describe('log prefix single exit', () => {
-  it('A2 the [dsh-web-ui] literal appears only in the error boundary', () => {
+  it('A3 the [webui-framework] literal appears only in the error boundary, and [dsh-web-ui] nowhere', () => {
     const allowed = 'src/ui/shell/ErrorBoundary.tsx'
     const offenders = files.filter(
-      (file) => file !== join(ROOT, allowed) && readFileSync(file, 'utf8').includes('[dsh-web-ui]'),
+      (file) => file !== join(ROOT, allowed) && readFileSync(file, 'utf8').includes('[webui-framework]'),
     )
     expect(offenders).toEqual([])
-    expect(readFileSync(join(ROOT, allowed), 'utf8')).toContain('[dsh-web-ui]')
+    expect(readFileSync(join(ROOT, allowed), 'utf8')).toContain('[webui-framework]')
+    // split so this file does not itself match the search
+    const oldPrefix = '[dsh-' + 'web-ui]'
+    expect(files.filter((file) => readFileSync(file, 'utf8').includes(oldPrefix))).toEqual([])
   })
 })

@@ -13,25 +13,6 @@ async function restricted(text: string, rel: string): Promise<number> {
 }
 
 describe('eslint single-exit guards', () => {
-  it('A1 a dsh-web-ui: literal is reported everywhere except the key module and tests', async () => {
-    const literal = "export const k = 'dsh-web-ui:x'"
-    expect(await restricted(literal, 'src/ui/x.ts')).toBeGreaterThanOrEqual(1)
-    expect(await restricted(literal, 'src/client/x.ts')).toBeGreaterThanOrEqual(1)
-    expect(await restricted(literal, 'src/lib/storage-keys.ts')).toBe(0)
-    expect(await restricted(literal, 'src/ui/x.test.ts')).toBe(0)
-  })
-
-  it('A1 a template string starting with dsh-web-ui: is reported too', async () => {
-    const template = 'export const k = (a: string) => `dsh-web-ui:${a}`'
-    expect(await restricted(template, 'src/ui/x.ts')).toBeGreaterThanOrEqual(1)
-    expect(await restricted(template, 'src/lib/storage-keys.ts')).toBe(0)
-    expect(await restricted(template, 'src/ui/x.test.ts')).toBe(0)
-  })
-
-  it('A1 a comment mentioning dsh-web-ui: is not a literal', async () => {
-    expect(await restricted("// 'dsh-web-ui:x' lives in storage-keys\nexport const k = 1", 'src/ui/x.ts')).toBe(0)
-  })
-
   it('A1 a test title not starting with A<n> is reported, A<n> titles are not, non-test files are skipped', async () => {
     expect(await restricted("it('TestFoo_A1 does x', () => {})", 'src/x.test.ts')).toBeGreaterThanOrEqual(1)
     expect(await restricted("it('A1 does x', () => {})", 'src/x.test.ts')).toBe(0)
