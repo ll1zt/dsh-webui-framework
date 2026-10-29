@@ -6,9 +6,9 @@ const HOST = 'http://host.test:8080/'
 const TOKEN = 'TOKENVALUE123'
 const COOKIE_VALUE = 'COOKIEVALUE456'
 const COOKIE = `dsh-auth-abc=${COOKIE_VALUE}`
-const PLUGIN_ID = '@lllzt/dsh-web-ui'
-const PLUGIN_URL = 'plugins/??@lllzt/dsh-web-ui/client.js&rev=f909492e1212'
-const BAD_REV_URL = 'plugins/??@lllzt/dsh-web-ui/client.js&rev=000000000000'
+const PLUGIN_ID = '@lllzt/dsh-webui-framework'
+const PLUGIN_URL = 'plugins/??@lllzt/dsh-webui-framework/client.js&rev=f909492e1212'
+const BAD_REV_URL = 'plugins/??@lllzt/dsh-webui-framework/client.js&rev=000000000000'
 const LOADER_LINE = `window.__ModuleLoader__.load({ id: "${PLUGIN_ID}", factory: (require) => {`
 const BUNDLE_OK = `${LOADER_LINE}\n  return { apply() {} }\n} })\n`
 

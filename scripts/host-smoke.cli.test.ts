@@ -9,8 +9,8 @@ const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const TOKEN = 'CLITOKEN{{SECRET_q9x2m4}}'
 const COOKIE_VALUE = 'CLICOOKIEVALUE789'
 const COOKIE = `dsh-auth-cli=${COOKIE_VALUE}`
-const PLUGIN_ID = '@lllzt/dsh-web-ui'
-const PLUGIN_URL = 'plugins/??@lllzt/dsh-web-ui/client.js&rev=f909492e1212'
+const PLUGIN_ID = '@lllzt/dsh-webui-framework'
+const PLUGIN_URL = 'plugins/??@lllzt/dsh-webui-framework/client.js&rev=f909492e1212'
 const BUNDLE = `window.__ModuleLoader__.load({ id: "${PLUGIN_ID}", factory: (require) => {\n  return { apply() {} }\n} })\n`
 const boot = { rev: '03bfb81d7dfb', entries: [{ id: PLUGIN_ID, url: PLUGIN_URL, rev: 'f909492e1212' }], batches: [] }
 const PAGE = `<!doctype html>\n<html><body>\n<script>globalThis["__DSH_BOOT__"] = ${JSON.stringify(boot)}</script>\n</body></html>`

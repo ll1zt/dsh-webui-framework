@@ -33,7 +33,7 @@ describe('eslint single-exit guards', () => {
   })
 
   it('A2 the plugin id literal is reported outside scripts/plugin-constants.ts and tests', async () => {
-    const literal = "export const id = '@lllzt/dsh-web-ui'"
+    const literal = "export const id = '@lllzt/dsh-webui-framework'"
     for (const rel of ['scripts/foo.ts', 'tsdown.config.ts', 'src/client/x.ts']) {
       expect(await restricted(literal, rel), rel).toBeGreaterThanOrEqual(1)
     }

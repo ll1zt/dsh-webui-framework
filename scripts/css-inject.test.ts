@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { styleInjectionModule } from './css-inject.ts'
 
-const PLUGIN_ID = '@lllzt/dsh-web-ui'
+const PLUGIN_ID = '@lllzt/dsh-webui-framework'
 const A_FILE = 'src/ui/a/a.css'
 const B_FILE = 'src/ui/b/b.css'
 const A_CSS = '.a{color:red}'

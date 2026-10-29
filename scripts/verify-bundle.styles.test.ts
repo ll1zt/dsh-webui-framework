@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { styleInjectionModule } from './css-inject.ts'
 import { verifyBundle } from './verify-bundle.ts'
 
-const PLUGIN_ID = '@lllzt/dsh-web-ui'
+const PLUGIN_ID = '@lllzt/dsh-webui-framework'
 
 let libDir: string | undefined
 
