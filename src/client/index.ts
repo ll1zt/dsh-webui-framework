@@ -1,36 +1,14 @@
-/** Browser half: registers the plugin's services and slot entries (docs/03 §2). */
+/** Browser half: assembles the feature plugins; each feature declares its own services (docs/03 §2, §15.1). */
 import '../styles/tokens.css'
 import type { Context } from '@deepseek-ai/cordis'
-import type {} from '@deepseek-ai/dsh-client-locale/client'
-import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
-import type {} from '@deepseek-ai/dsh-client-ui-theme/client'
-import en from '../../locale/en.json'
-import zh from '../../locale/zh.json'
-import { App } from './entries/App.tsx'
-import { createPageStore } from './services/page-store.ts'
-import { ThemePresenter } from './services/theme-presenter.ts'
-import type {} from './types.ts'
+import { FEATURES } from './features/index.ts'
 
 export const name = 'dsh-web-ui'
 
-/** Required services `apply` uses today; a unit that uses a new service adds it here. */
-export const inject: string[] = ['slots', 'locale', 'theme']
-
 /**
- * Client plugin body: own the `webui` copy namespace, then take the `root` seat
- * with the page store. No `priority`: the registration keeps the shipped slot's
- * fail-loud contract.
+ * Client plugin body: load every feature as its own sub-plugin, so one lacking a service stays inactive alone.
  * @param ctx - client root context.
  */
 export function apply(ctx: Context): void {
-  const pageStore = createPageStore()
-  ctx.effect(() => ctx.locale.register('webui', { zh, en }), 'webui: dictionaries')
-  ctx.effect(() => ctx.slots.register({ name: 'root', locale: 'webui', store: pageStore }, App), 'webui: root')
-  // One presenter per plugin fiber: it retracts only its own writes, so disposing it on teardown leaves no theme residue.
-  const presenter = new ThemePresenter()
-  ctx.effect(() => {
-    presenter.apply(ctx.theme.getTheme())
-    return () => presenter.dispose()
-  }, 'webui: theme')
-  ctx.effect(() => ctx.on('theme/change', (snapshot) => presenter.apply(snapshot)), 'webui: theme change')
+  for (const feature of FEATURES) ctx.plugin(feature)
 }
