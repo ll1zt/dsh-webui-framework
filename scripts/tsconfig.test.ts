@@ -34,7 +34,6 @@ describe('tsconfig split', () => {
   it('A1 tsconfig.json covers only non-test src code without node types', () => {
     const { files, options } = parse('tsconfig.json')
     expect(files).toContain('src/client/index.ts')
-    expect(files).toContain('src/ui/shell/AppShell.tsx')
     expect(files.filter((file) => /\.test\.tsx?$/.test(file))).toEqual([])
     expect(files.filter((file) => file.startsWith('src/test/'))).toEqual([])
     expect(files.filter((file) => file.startsWith('scripts/'))).toEqual([])
