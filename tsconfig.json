@@ -17,6 +17,6 @@
     "noEmit": true,
     "types": []
   },
-  "include": ["src"],
+  "include": ["src", "contract"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/test"]
 }

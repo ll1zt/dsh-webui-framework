@@ -1,0 +1,4 @@
+import { BlockMeta, WebuiLayoutService } from '@lllzt/dsh-webui-framework/contract'
+
+export const meta = BlockMeta
+export const service = WebuiLayoutService
