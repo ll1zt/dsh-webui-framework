@@ -32,6 +32,13 @@ describe('eslint single-exit guards', () => {
     expect(await restricted("// 'dsh-web-ui:x' lives in storage-keys\nexport const k = 1", 'src/ui/x.ts')).toBe(0)
   })
 
+  it('A1 a test title not starting with A<n> is reported, A<n> titles are not, non-test files are skipped', async () => {
+    expect(await restricted("it('TestFoo_A1 does x', () => {})", 'src/x.test.ts')).toBeGreaterThanOrEqual(1)
+    expect(await restricted("it('A1 does x', () => {})", 'src/x.test.ts')).toBe(0)
+    expect(await restricted("test('A12 y', () => {})", 'src/x.test.ts')).toBe(0)
+    expect(await restricted("it('TestFoo_A1 does x', () => {})", 'src/x.ts')).toBe(0)
+  })
+
   it('A2 the plugin id literal is reported outside scripts/plugin-constants.ts and tests', async () => {
     const literal = "export const id = '@lllzt/dsh-webui-framework'"
     for (const rel of ['scripts/foo.ts', 'tsdown.config.ts', 'src/client/x.ts']) {

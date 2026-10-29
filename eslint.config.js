@@ -36,6 +36,13 @@ const STORAGE_PREFIX_GUARDS = textSelectors('=/^dsh-web-ui:/').map((selector) =>
   message:
     "Storage keys (the 'dsh-web-ui:' prefix) are built only in src/lib/storage-keys.ts; import a key from there.",
 }))
+// Test titles open with their acceptance item: `A<n> ` then a lowercase description.
+const TEST_TITLE_GUARDS = [
+  {
+    selector: 'CallExpression[callee.name=/^(it|test)$/] > Literal:first-child[value!=/^A\\d+ /]',
+    message: 'A test title must start with its acceptance item, A<n> followed by a space (e.g. "A1 does x").',
+  },
+]
 
 export default tseslint.config(
   { ignores: ['lib/', 'node_modules/', 'ref/', 'coverage/'] },
@@ -86,6 +93,10 @@ export default tseslint.config(
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/lib/storage-keys.ts', '**/*.test.*'],
     rules: { 'no-restricted-syntax': ['error', ...STORAGE_PREFIX_GUARDS, ...PLUGIN_ID_GUARDS] },
+  },
+  {
+    files: ['**/*.test.{ts,tsx}'],
+    rules: { 'no-restricted-syntax': ['error', ...TEST_TITLE_GUARDS] },
   },
   {
     files: ['scripts/**/*.{js,mjs,ts}', '*.config.{js,ts}'],

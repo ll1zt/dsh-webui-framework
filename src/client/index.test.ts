@@ -22,7 +22,7 @@ function snapshot(overrides: Partial<ThemeSnapshot> = {}): ThemeSnapshot {
 }
 
 describe('client apply', () => {
-  it('TestIndex_A1 registers exactly one root entry for App and clears it on dispose', () => {
+  it('A1 registers exactly one root entry for App and clears it on dispose', () => {
     const ctx = createFakeContext({ theme: { getTheme: () => snapshot() } })
     apply(ctx)
 
@@ -38,7 +38,7 @@ describe('client apply', () => {
     expect(ctx.slots.entries('root')).toHaveLength(0)
   })
 
-  it('TestIndex_A2 registers the webui namespace with matching zh and en dictionaries', () => {
+  it('A2 registers the webui namespace with matching zh and en dictionaries', () => {
     const ctx = createFakeContext({ theme: { getTheme: () => snapshot() } })
     apply(ctx)
 

@@ -71,7 +71,7 @@ const isRow = (entry: PatchEntry): boolean => !('insert' in entry)
 const sorted = (values: readonly string[]): string[] => [...values].sort()
 
 describe('cordis.patch.yml', () => {
-  it('TestPatch_A1_disables_exactly_the_47_official_rows', () => {
+  it('A1 disables exactly the 47 official rows', () => {
     const entries = readPatch()
     expect(Array.isArray(entries)).toBe(true)
     expect(entries).toHaveLength(48)
@@ -89,7 +89,7 @@ describe('cordis.patch.yml', () => {
     expect(sorted(ids)).toEqual(sorted(DISABLED_ROW_IDS))
   })
 
-  it('TestPatch_A2_ends_with_one_insert_row_of_pi_ui', () => {
+  it('A2 ends with one insert row of pi ui', () => {
     const entries = readPatch()
     expect(entries.filter((entry) => 'insert' in entry)).toHaveLength(1)
     expect(entries[entries.length - 1]).toEqual({
@@ -104,7 +104,7 @@ describe('package manifest', () => {
     files?: string[]
   }
 
-  it('TestPatch_A3_declares_the_bundle_patch_and_ships_it', () => {
+  it('A3 declares the bundle patch and ships it', () => {
     const manifest = JSON.parse(read('package.json')) as PackageManifest
     expect(manifest.dsh?.client?.platform).toBe('web')
     expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')

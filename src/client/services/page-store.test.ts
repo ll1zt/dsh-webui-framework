@@ -36,7 +36,7 @@ describe('createPageStore', () => {
     vi.unstubAllGlobals()
   })
 
-  it('TestStore_A7 seeds sidebarWidth from storage and falls back to 260', () => {
+  it('A7 seeds sidebarWidth from storage and falls back to 260', () => {
     vi.stubGlobal('localStorage', fakeStorage({ [SIDEBAR_WIDTH_KEY]: '300' }))
     expect(seededSidebarWidth()).toBe(300)
 
