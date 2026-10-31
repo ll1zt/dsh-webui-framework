@@ -13,6 +13,8 @@ import type { WebuiFeature } from './index.ts'
  * Register the dictionaries, then take the `root` seat. No `priority`: the registration
  * keeps the shipped slot's fail-loud contract. The seat's inject face hands App the controller over the
  * page registry, so the dock draws what `webuiLayout` registers, and a failed block can be retried.
+ * The seat is registered before this feature returns, so the two block lists are declared by the time
+ * anything else can look at the slots.
  * @param ctx - client root context.
  */
 function apply(ctx: Context): void {
@@ -22,28 +24,27 @@ function apply(ctx: Context): void {
     () => ctx.slots.onEntryError((key, registration, error, info) => errors.record(key, registration, error, info)),
     'webui: entry errors',
   )
-  ctx.effect(
-    () =>
-      ctx.slots.register(
-        {
-          name: 'root',
-          locale: 'webui',
-          inject: (): AppInject => ({
-            hooks: { dock: controller, locale: ctx.locale, errors },
-            dockActions: controller.actions,
-            retryBlock: (blockId: string): void => {
-              if (registry.remount(blockId)) errors.clear(blockId)
-            },
-          }),
-          children: {
-            [WEBUI_SLOT_KEYS.root]: { kind: 'list', scope: 'root' },
-            [WEBUI_SLOT_KEYS.session]: { kind: 'list', scope: 'session' },
-          },
+  // Registered outside an effect callback: the root seat declares the two block lists the moment this feature
+  // applies, so no contributor holding `webuiLayout` can register a block ahead of the children table.
+  const unregister = ctx.slots.register(
+    {
+      name: 'root',
+      locale: 'webui',
+      inject: (): AppInject => ({
+        hooks: { dock: controller, locale: ctx.locale, errors },
+        dockActions: controller.actions,
+        retryBlock: (blockId: string): void => {
+          if (registry.remount(blockId)) errors.clear(blockId)
         },
-        App,
-      ),
-    'webui: root',
+      }),
+      children: {
+        [WEBUI_SLOT_KEYS.root]: { kind: 'list', scope: 'root' },
+        [WEBUI_SLOT_KEYS.session]: { kind: 'list', scope: 'session' },
+      },
+    },
+    App,
   )
+  ctx.effect(() => unregister, 'webui: root')
 }
 
 export const shell: WebuiFeature = { name: 'shell', inject: ['slots', 'locale'], apply }

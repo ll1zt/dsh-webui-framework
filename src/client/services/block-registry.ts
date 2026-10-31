@@ -78,6 +78,51 @@ function ownerName(owner: Context): string {
   return owner.fiber.name || UNNAMED_OWNER
 }
 
+/** The declaration surface of `ctx.slots` this package waits on. */
+export interface SlotDeclarations {
+  /**
+   * @param key - slot key.
+   * @returns whether a parent entry has declared the key, so entries may enter it.
+   */
+  declared(key: string): boolean
+  /**
+   * @param key - slot key.
+   * @param listener - called for every declaration lifetime boundary of that key.
+   * @returns unsubscribe function.
+   */
+  onDeclared(key: string, listener: () => void): () => void
+}
+
+/**
+ * Read the host's declaration surface. The slot core publishes declarations as `declarationEpoch`/
+ * `subscribeDeclaration`, while the renderer's registry service, which is what `ctx.slots` actually is,
+ * exposes them as `spec`/`subscribe`. A host with neither predates the declaration ledger, and its slots
+ * accept entries at once, which is the behaviour this package had before it waited on declarations.
+ * @param slots - the `ctx.slots` service of the registering context.
+ * @returns the declaration surface, backed by whichever pair the host publishes.
+ */
+export function slotDeclarationsOf(slots: unknown): SlotDeclarations {
+  const surface = slots as {
+    declarationEpoch?(key: string): number
+    subscribeDeclaration?(key: string, listener: () => void): () => void
+    spec?(key: string): unknown
+    subscribe?(key: string, listener: () => void): () => void
+  }
+  const { declarationEpoch, subscribeDeclaration, spec, subscribe } = surface
+  return {
+    declared(key: string): boolean {
+      if (typeof declarationEpoch === 'function') return declarationEpoch.call(surface, key) > 0
+      if (typeof spec === 'function') return spec.call(surface, key) !== undefined
+      return true
+    },
+    onDeclared(key: string, listener: () => void): () => void {
+      const watch = typeof subscribeDeclaration === 'function' ? subscribeDeclaration : subscribe
+      if (typeof watch !== 'function') return () => {}
+      return watch.call(surface, key, listener)
+    },
+  }
+}
+
 /** Holds the registered blocks and presets; slot entries follow the registering plugin's fiber. */
 export class BlockRegistry {
   readonly #blocks = new Map<string, BlockRegistration>()
@@ -87,7 +132,9 @@ export class BlockRegistry {
   readonly #listeners = new Set<() => void>()
 
   /**
-   * Register a block and put its component into the slot of `meta.scope`.
+   * Register a block and put its component into the slot of `meta.scope`. A slot the host has not declared yet
+   * holds the block back: it enters neither the slot nor `blocks()` until the declaration arrives, so the call
+   * never throws and leaves no entry behind.
    * @param owner - the registering plugin's context; the slot entry is torn down with its fiber.
    * @param meta - block metadata.
    * @param component - block component.
@@ -103,7 +150,6 @@ export class BlockRegistry {
       return () => {}
     }
     const registration: BlockRegistration = { meta, component, owner: name }
-    this.#blocks.set(meta.id, registration)
     const remove = (): void => {
       if (this.#blocks.get(meta.id) !== registration) return
       this.#blocks.delete(meta.id)
@@ -111,27 +157,53 @@ export class BlockRegistry {
       this.#notify()
     }
     const slotComponent = asFunctionComponent(component)
+    const slotKey = WEBUI_SLOT_KEYS[meta.scope]
     let unregister: (() => void) | undefined
     const mount = (): void => {
       unregister = owner.slots.register(
-        { name: WEBUI_SLOT_KEYS[meta.scope], id: meta.id, priority: meta.priority, label: meta.title.en },
+        { name: slotKey, id: meta.id, priority: meta.priority, label: meta.title.en },
         slotComponent,
       )
     }
+    // The block joins #blocks only once its slot entry exists, so a registration that cannot mount leaves no tab behind.
+    const adopt = (): void => {
+      if (this.#blocks.get(meta.id) === registration) return
+      mount()
+      this.#blocks.set(meta.id, registration)
+      this.#remounts.set(meta.id, () => {
+        unregister?.()
+        mount()
+      })
+      this.#notify()
+    }
+    const declarations = slotDeclarationsOf(owner.slots)
+    // A late mount runs inside the declaring entry's register call, so its failure must not reach the slot ledger.
+    const adoptLate = (): void => {
+      if (!declarations.declared(slotKey)) return
+      try {
+        adopt()
+      } catch (error) {
+        console.warn(`${LOG_PREFIX} block "${meta.id}" did not enter slot "${slotKey}": ${String(error)}`)
+      }
+    }
     // owner.effect ties the slot entry and the metadata to the contributor's fiber, so unloading that plugin retracts both.
     const stop = owner.effect(() => {
-      mount()
+      if (declarations.declared(slotKey)) {
+        adopt()
+        return () => {
+          unregister?.()
+          unregister = undefined
+          remove()
+        }
+      }
+      const stopWaiting = declarations.onDeclared(slotKey, adoptLate)
       return () => {
+        stopWaiting()
         unregister?.()
         unregister = undefined
         remove()
       }
     }, `webui: block ${meta.id}`)
-    this.#remounts.set(meta.id, () => {
-      unregister?.()
-      mount()
-    })
-    this.#notify()
     return this.#once(() => {
       void stop()
       remove()
