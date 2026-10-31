@@ -14,15 +14,16 @@ const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
   devDependencies?: Record<string, string>
 }
 
-/** Host packages pinned to the alpha.2 baseline (D57). */
-const HOST_PIN = '0.2.2-alpha.2'
-const CORDIS_PIN = '4.0.6-alpha.1'
+/** An exact version: no range operator, optional prerelease. */
+const EXACT_VERSION = /^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/
 
 /** The only runtime dependency the Node half may declare (D38). */
 const RUNTIME_ALLOW = ['@deepseek-ai/schemastery']
 
 interface Step {
+  id?: string
   name?: string
+  if?: string
   run?: string
 }
 const workflow = parse(workflowText) as { jobs: Record<string, { steps: Step[] }> }
@@ -69,12 +70,14 @@ describe('npm run gate 是门禁唯一定义', () => {
     expect(Number(match?.[1])).toBeGreaterThanOrEqual(24)
   })
 
-  it('A5 pins every @deepseek-ai host package to the alpha.2 baseline and cordis to its own pin', () => {
+  it('A6 every @deepseek-ai/dsh-* package shares one exact version and cordis and schemastery are exact', () => {
     const all = { ...pkg.dependencies, ...pkg.devDependencies }
     const host = Object.entries(all).filter(([name]) => name.startsWith('@deepseek-ai/dsh-'))
     expect(host.length).toBeGreaterThan(0)
-    expect(host.filter(([, version]) => version !== HOST_PIN)).toEqual([])
-    expect(all['@deepseek-ai/cordis']).toBe(CORDIS_PIN)
+    expect(host.filter(([, version]) => !EXACT_VERSION.test(version))).toEqual([])
+    expect(new Set(host.map(([, version]) => version)).size).toBe(1)
+    expect(all['@deepseek-ai/cordis']).toMatch(EXACT_VERSION)
+    expect(all['@deepseek-ai/schemastery']).toMatch(EXACT_VERSION)
   })
 
   it('A6 dependencies lists only the Node half runtime allow-list', () => {
@@ -86,5 +89,68 @@ describe('npm run gate 是门禁唯一定义', () => {
     const lines = readFileSync(join(ROOT, '.gitignore'), 'utf8').split('\n')
     expect(lines).toContain('/lib')
     expect(lines).not.toContain('lib')
+  })
+})
+
+interface AlphaWorkflow {
+  on: {
+    schedule?: { cron?: string }[]
+    workflow_dispatch?: { inputs?: Record<string, { required?: boolean }> }
+  }
+  jobs: Record<string, { steps: Step[] }>
+}
+
+/** Read lazily, so a missing workflow fails its own tests instead of the whole file. */
+const loadAlpha = () => {
+  const text = readFileSync(join(ROOT, '.forgejo/workflows/dsh-alpha.yml'), 'utf8')
+  const alpha = parse(text) as AlphaWorkflow
+  const steps = Object.values(alpha.jobs).flatMap((job) => job.steps)
+  const indexOf = (...needles: string[]) =>
+    steps.findIndex((step) => needles.every((needle) => (step.run ?? '').includes(needle)))
+  return { text, alpha, steps, indexOf }
+}
+
+describe('dsh-alpha 工作流', () => {
+  it('A5 runs weekly on schedule and can be dispatched with an optional version input', () => {
+    const { alpha } = loadAlpha()
+    expect(alpha.on.schedule?.[0]?.cron).toBe('0 3 * * 1')
+    const version = alpha.on.workflow_dispatch?.inputs?.version
+    expect(version).toBeDefined()
+    expect(version?.required ?? false).toBe(false)
+  })
+
+  it('A5 steps run bump, install, gate, host-compat, then push and report in that order', () => {
+    const { indexOf } = loadAlpha()
+    const bump = indexOf('scripts/dsh-bump.ts')
+    const install = indexOf('npm install')
+    const gate = indexOf('npm run gate')
+    const compat = indexOf('scripts/host-compat.ts')
+    const push = indexOf('git', 'push', 'dsh-alpha/')
+    const report = indexOf('scripts/dsh-report.ts')
+    for (const index of [bump, install, gate, compat, push, report]) expect(index).toBeGreaterThanOrEqual(0)
+    expect(bump).toBeLessThan(install)
+    expect(install).toBeLessThan(gate)
+    expect(gate).toBeLessThan(compat)
+    expect(compat).toBeLessThan(push)
+    expect(push).toBeLessThanOrEqual(report)
+  })
+
+  it('A5 a failed install, gate or host-compat step is reported by a failure() step that calls dsh-report', () => {
+    const { steps, indexOf } = loadAlpha()
+    const failure = steps.findIndex(
+      (step) => (step.if ?? '').includes('failure()') && (step.run ?? '').includes('scripts/dsh-report.ts'),
+    )
+    expect(failure).toBeGreaterThan(indexOf('scripts/host-compat.ts'))
+  })
+
+  it('A5 every step after the bump depends on its changed output, and no change prints 没有新版本', () => {
+    const { text, steps, indexOf } = loadAlpha()
+    const bump = indexOf('scripts/dsh-bump.ts')
+    const id = steps[bump]?.id
+    expect(id).toBeTruthy()
+    const after = steps.slice(bump + 1)
+    expect(after.length).toBeGreaterThan(0)
+    expect(after.filter((step) => !(step.if ?? '').includes(`steps.${id}.outputs.changed`))).toEqual([])
+    expect(text).toContain('没有新版本')
   })
 })
