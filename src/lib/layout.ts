@@ -162,7 +162,8 @@ function resolveNode(saved: SavedNode, catalog: LayoutCatalog, seen: Set<string>
   return { kind: 'split', axis: saved.axis, children: kept.map((k) => k.node), sizes: kept.map((k) => k.size) }
 }
 
-function nodeAt(root: LayoutNode, path: readonly number[]): LayoutNode | undefined {
+/** The node at `path` (child indices from `root`); `root` for `[]`, undefined when the path runs through a pane or off the end. */
+export function nodeAt(root: LayoutNode, path: readonly number[]): LayoutNode | undefined {
   let node: LayoutNode | undefined = root
   for (const index of path) {
     if (node?.kind !== 'split') return undefined
