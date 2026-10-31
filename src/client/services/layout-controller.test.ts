@@ -421,3 +421,99 @@ describe('LayoutController onAction', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 })
+
+describe('LayoutController beginResize / endResize', () => {
+  const twoPanes = () => presetOf('p', 0, row([pane(0, ['a']), pane(0, ['b'])], [px(260), FR]))
+
+  async function gesture() {
+    const { controller } = await setup([meta('a'), meta('b'), meta('c')], [twoPanes()])
+    const onAction = vi.fn<(layout: WebuiLayout) => void>()
+    const subscriber = vi.fn()
+    controller.onAction(onAction)
+    controller.subscribe(subscriber)
+    return { controller, onAction, subscriber }
+  }
+
+  it('A2 between begin and end resizeSplit publishes at once but calls no onAction listener', async () => {
+    const { controller, onAction, subscriber } = await gesture()
+
+    controller.actions.beginResize()
+    controller.actions.resizeSplit([], [px(280), FR])
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(280), FR])
+    expect(subscriber).toHaveBeenCalledTimes(1)
+    controller.actions.resizeSplit([], [px(300), FR])
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(300), FR])
+    expect(subscriber).toHaveBeenCalledTimes(2)
+
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('A2 endResize after a change calls every listener exactly once with the final layout', async () => {
+    const { controller, onAction } = await gesture()
+    const second = vi.fn<(layout: WebuiLayout) => void>()
+    controller.onAction(second)
+
+    controller.actions.beginResize()
+    controller.actions.resizeSplit([], [px(280), FR])
+    controller.actions.resizeSplit([], [px(300), FR])
+    controller.actions.endResize()
+
+    for (const listener of [onAction, second]) {
+      expect(listener).toHaveBeenCalledTimes(1)
+      expect(listener).toHaveBeenCalledWith(controller.getSnapshot().layout)
+    }
+    controller.actions.endResize()
+    expect(onAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('A2 endResize without a change calls no listener', async () => {
+    const { controller, onAction } = await gesture()
+
+    controller.actions.beginResize()
+    controller.actions.endResize()
+    controller.actions.beginResize()
+    controller.actions.resizeSplit([5], [FR, FR])
+    controller.actions.resizeSplit([], [FR])
+    controller.actions.endResize()
+
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('A2 a lone endResize does nothing, and a repeated beginResize still ends in one notification', async () => {
+    const { controller, onAction } = await gesture()
+
+    controller.actions.endResize()
+    expect(onAction).not.toHaveBeenCalled()
+
+    controller.actions.beginResize()
+    controller.actions.resizeSplit([], [px(280), FR])
+    controller.actions.beginResize()
+    controller.actions.resizeSplit([], [px(320), FR])
+    controller.actions.endResize()
+
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect(onAction).toHaveBeenCalledWith(controller.getSnapshot().layout)
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(320), FR])
+  })
+
+  it('A2 a repeated beginResize does not move the baseline: a change made before it still counts', async () => {
+    const { controller, onAction } = await gesture()
+
+    controller.actions.beginResize()
+    controller.actions.resizeSplit([], [px(280), FR])
+    controller.actions.beginResize()
+    controller.actions.endResize()
+
+    expect(onAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('A2 other actions during a gesture still notify at once', async () => {
+    const { controller, onAction } = await gesture()
+
+    controller.actions.beginResize()
+    controller.actions.close({ blockId: 'b' })
+
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect(onAction).toHaveBeenLastCalledWith(controller.getSnapshot().layout)
+  })
+})

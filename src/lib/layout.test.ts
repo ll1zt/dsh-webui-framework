@@ -10,7 +10,7 @@ import type {
 } from '@lllzt/dsh-webui-framework/contract'
 import { describe, expect, it } from 'vitest'
 import type { LayoutCatalog } from './layout.ts'
-import { chooseLayout, emptyLayout, resolveLayout } from './layout.ts'
+import { chooseLayout, emptyLayout, nodeAt, resolveLayout } from './layout.ts'
 
 const FR: LayoutSize = { fr: 1 }
 const LEFT: LayoutSize = { px: 260, min: 180, max: 480 }
@@ -267,5 +267,26 @@ describe('chooseLayout', () => {
     ['garbage saved', 'garbage'],
   ])('A5 returns the empty layout with no presets and %s', (_name, value) => {
     expect(chooseLayout(value, [], ABC).layout).toEqual(emptyLayout())
+  })
+})
+
+describe('nodeAt', () => {
+  const nested = row([single('a'), col([single('b'), single('c')], [FR, FR])], [LEFT, FR])
+
+  it('A6 the empty path is the root itself', () => {
+    expect(nodeAt(nested, [])).toBe(nested)
+  })
+
+  it('A6 a path of child indices reaches a nested node', () => {
+    expect(nodeAt(nested, [1])).toBe(nested.children[1])
+    expect(nodeAt(nested, [1, 0])).toEqual(single('b'))
+    expect(nodeAt(nested, [0])).toEqual(single('a'))
+  })
+
+  it('A6 a path through a pane, or an index out of range, is undefined', () => {
+    expect(nodeAt(nested, [0, 0])).toBeUndefined()
+    expect(nodeAt(nested, [1, 0, 0])).toBeUndefined()
+    expect(nodeAt(nested, [2])).toBeUndefined()
+    expect(nodeAt(nested, [1, 5])).toBeUndefined()
   })
 })

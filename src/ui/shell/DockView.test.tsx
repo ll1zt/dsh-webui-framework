@@ -63,7 +63,7 @@ function renderDock(
     wrapSession,
   }: {
     language?: string
-    actions?: BlockLayoutActions
+    actions?: DockViewProps['actions']
     failures?: ReadonlyMap<string, BlockFailure>
     onRetry?: (blockId: string) => void
     wrapSession?: DockViewProps['wrapSession']
@@ -138,19 +138,19 @@ describe('DockView', () => {
 
   it('A3 renderBlock gets the meta and the instance props for each registered tab, never a ctx, and skips an unregistered block', () => {
     const blocks = [registration('a'), registration('b')]
-    const { renderBlock, actions } = renderDock(layoutOf(pane(0, ['a'], ['ghost'], ['b'])), blocks)
+    const { renderBlock } = renderDock(layoutOf(pane(0, ['a'], ['ghost'], ['b'])), blocks)
 
     expect(renderBlock).toHaveBeenCalledWith(blocks[0]?.meta, {
       blockId: 'a',
       contentId: '',
       active: true,
-      layout: actions,
+      layout: expect.any(Object),
     })
     expect(renderBlock).toHaveBeenCalledWith(blocks[1]?.meta, {
       blockId: 'b',
       contentId: '',
       active: false,
-      layout: actions,
+      layout: expect.any(Object),
     })
     expect(renderBlock.mock.calls.map(([meta]) => meta.id)).not.toContain('ghost')
     for (const [, instance] of renderBlock.mock.calls) expect(instance).not.toHaveProperty('ctx')
@@ -427,5 +427,79 @@ describe('DockView splitters', () => {
       expect(probes[index]?.isConnected).toBe(true)
     })
     expect(mounts).toHaveBeenCalledTimes(3)
+  })
+})
+
+describe('DockView block layout actions', () => {
+  const BLOCK_KEYS = ['activate', 'close', 'open', 'resetToPreset', 'resize']
+
+  it('A1 a block gets only the five layout methods, never resizeSplit, beginResize or endResize', () => {
+    const actions = { ...makeActions(), resizeSplit: vi.fn(), beginResize: vi.fn(), endResize: vi.fn() }
+    const { renderBlock } = renderDock(layoutOf(pane(0, ['a'], ['b'])), [registration('a'), registration('b')], {
+      actions,
+    })
+
+    expect(renderBlock).toHaveBeenCalledTimes(2)
+    for (const [, instance] of renderBlock.mock.calls) {
+      expect(Object.keys(instance.layout).sort()).toEqual(BLOCK_KEYS)
+      expect(instance.layout).not.toBe(actions)
+    }
+  })
+
+  it('A1 the layout object is the same across a rerender with the same actions', () => {
+    const actions = { ...makeActions(), resizeSplit: vi.fn(), beginResize: vi.fn(), endResize: vi.fn() }
+    const blocks = [registration('a')]
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    const dock = (layout: WebuiLayout) => (
+      <DockView snapshot={{ layout, blocks }} actions={actions} renderBlock={renderBlock} t={t} language="en" />
+    )
+    const { rerender } = render(dock(layoutOf(pane(0, ['a']))))
+    rerender(dock(layoutOf(pane(0, ['a']))))
+
+    expect(renderBlock.mock.calls.length).toBeGreaterThanOrEqual(2)
+    const first = renderBlock.mock.calls[0]?.[1].layout
+    for (const [, instance] of renderBlock.mock.calls) expect(instance.layout).toBe(first)
+  })
+
+  it('A1 calling a method of the block layout forwards to the same-named method of props.actions', () => {
+    const actions = { ...makeActions(), resizeSplit: vi.fn(), beginResize: vi.fn(), endResize: vi.fn() }
+    const { renderBlock } = renderDock(layoutOf(pane(0, ['a'])), [registration('a')], { actions })
+    const layout = renderBlock.mock.calls[0]?.[1].layout
+    if (layout === undefined) throw new Error('renderBlock was not called')
+    const target = { blockId: 'a', contentId: 'x' }
+
+    layout.open(target)
+    layout.close(target)
+    layout.activate(target)
+    layout.resize(target, { fr: 2 })
+    layout.resetToPreset()
+
+    expect(actions.open).toHaveBeenCalledWith(target)
+    expect(actions.close).toHaveBeenCalledWith(target)
+    expect(actions.activate).toHaveBeenCalledWith(target)
+    expect(actions.resize).toHaveBeenCalledWith(target, { fr: 2 })
+    expect(actions.resetToPreset).toHaveBeenCalledTimes(1)
+  })
+
+  it('A3 pointerdown on a separator calls actions.beginResize once, pointerup calls endResize once, the keyboard neither', () => {
+    const beginResize = vi.fn()
+    const endResize = vi.fn()
+    const actions = { ...makeActions(), resizeSplit: vi.fn(), beginResize, endResize }
+    const layout = layoutOf(row([pane(0, ['a']), pane(0, ['b'])], [px(200), FR]))
+    renderDock(layout, [registration('a'), registration('b')], { actions })
+    const separator = screen.getByRole('separator', { name: 'dock.splitter' })
+    Object.assign(separator, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+
+    fireEvent.keyDown(separator, { key: 'ArrowRight' })
+    expect(beginResize).not.toHaveBeenCalled()
+    expect(endResize).not.toHaveBeenCalled()
+
+    fireEvent.pointerDown(separator, { pointerId: 1, clientX: 100 })
+    expect(beginResize).toHaveBeenCalledTimes(1)
+    expect(endResize).not.toHaveBeenCalled()
+    fireEvent.pointerMove(separator, { pointerId: 1, clientX: 110 })
+    fireEvent.pointerUp(separator, { pointerId: 1, clientX: 110 })
+    expect(beginResize).toHaveBeenCalledTimes(1)
+    expect(endResize).toHaveBeenCalledTimes(1)
   })
 })
