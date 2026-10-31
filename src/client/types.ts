@@ -1,5 +1,6 @@
 /** Module augmentations for slot keys and session-scoped standard props. */
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
+import type { BlockInstanceProps } from '@lllzt/dsh-webui-framework/contract'
 import type zhDict from '../../locale/zh.json'
 
 /**
@@ -25,8 +26,8 @@ export const WEBUI_SLOT_KEYS = { root: 'webui.block.root', session: 'webui.block
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /** Blocks of `root` scope: additive list the shell renders in the workspace. */
-    'webui.block.root': { kind: 'list'; scope: 'root' }
+    'webui.block.root': { kind: 'list'; scope: 'root'; owner: BlockInstanceProps }
     /** Blocks of `session` scope: additive list rendered inside the session area. */
-    'webui.block.session': { kind: 'list'; scope: 'session' }
+    'webui.block.session': { kind: 'list'; scope: 'session'; owner: BlockInstanceProps }
   }
 }
