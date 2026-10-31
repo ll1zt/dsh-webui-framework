@@ -45,6 +45,7 @@ function resizeSplitAt(layout: WebuiLayout, path: readonly number[], sizes: read
 export class LayoutController {
   readonly #registry: BlockRegistry
   readonly #listeners = new Set<() => void>()
+  readonly #actionListeners = new Set<(layout: WebuiLayout) => void>()
   #snapshot: DockSnapshot
   #settled = false
   /** True until the layout is first set by an action or a saved layout: until then it follows the presets. */
@@ -85,6 +86,35 @@ export class LayoutController {
     }
   }
 
+  /** Whether every block that will register has; until then a layout keeps the blocks that are not registered yet. */
+  get settled(): boolean {
+    return this.#settled
+  }
+
+  /**
+   * Mark every block as registered and re-resolve the current layout, dropping the blocks that still are not.
+   * Not a user action: the layout keeps following presets and no `onAction` listener hears it.
+   */
+  settle(): void {
+    if (this.#settled) return
+    this.#settled = true
+    const { blocks, layout } = this.#snapshot
+    const resolved = resolveLayout(layout, this.#catalogOf(blocks))
+    if (resolved.repaired) this.#publish({ layout: resolved.layout, blocks })
+  }
+
+  /**
+   * Observe the layout changes the user made through `actions`.
+   * @param listener - called once after each action that changed the layout, with the new layout.
+   * @returns the disposer removing the listener.
+   */
+  onAction(listener: (layout: WebuiLayout) => void): () => void {
+    this.#actionListeners.add(listener)
+    return () => {
+      this.#actionListeners.delete(listener)
+    }
+  }
+
   /**
    * Adopt a layout loaded from storage, repaired against the registered blocks.
    * @param saved - the stored value, of unknown shape.
@@ -115,7 +145,9 @@ export class LayoutController {
     this.#following = false
     const { blocks, layout } = this.#snapshot
     const next = change(layout, this.#catalogOf(blocks))
-    if (next !== layout) this.#publish({ layout: next, blocks })
+    if (next === layout) return
+    this.#publish({ layout: next, blocks })
+    for (const listener of [...this.#actionListeners]) listener(next)
   }
 
   #publish(snapshot: DockSnapshot): void {
