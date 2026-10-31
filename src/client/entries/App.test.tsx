@@ -33,7 +33,7 @@ function pane(...ids: string[]): LayoutNode {
 
 function snapshotOf(root: LayoutNode | null, blocks: BlockRegistration[]): DockSnapshot {
   const layout: WebuiLayout = root === null ? emptyLayout() : { version: 1, root, activePane: [] }
-  return { layout, blocks }
+  return { layout, blocks, titles: new Map() }
 }
 
 interface SessionProviderProps {
@@ -105,12 +105,12 @@ describe('App', () => {
 
     expect(renderSlot).toHaveBeenCalledWith(
       ROOT_KEY,
-      { blockId: 'r1', contentId: '', active: true, layout: expect.any(Object) },
+      { blockId: 'r1', contentId: '', active: true, layout: expect.any(Object), tab: expect.any(Object) },
       expect.objectContaining({ only: 'r1' }),
     )
     expect(renderSlot).toHaveBeenCalledWith(
       SESSION_KEY,
-      { blockId: 's1', contentId: '', active: false, layout: expect.any(Object) },
+      { blockId: 's1', contentId: '', active: false, layout: expect.any(Object), tab: expect.any(Object) },
       expect.objectContaining({ only: 's1' }),
     )
     for (const [, owner] of renderSlot.mock.calls) expect(owner).not.toHaveProperty('ctx')

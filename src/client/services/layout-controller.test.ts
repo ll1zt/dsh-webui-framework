@@ -12,7 +12,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { emptyLayout } from '../../lib/layout.ts'
 import { createFakeContext } from '../../test/fake-ctx.ts'
 import { BlockRegistry } from './block-registry.ts'
-import { LayoutController, type DockSnapshot } from './layout-controller.ts'
+import { LayoutController, tabKey, type DockSnapshot } from './layout-controller.ts'
 
 const Component: BlockComponent = () => null
 
@@ -92,7 +92,7 @@ describe('LayoutController start', () => {
   it('A1 with no blocks and no presets the snapshot holds the empty layout and no blocks', async () => {
     const { controller } = await setup()
 
-    expect(controller.getSnapshot()).toEqual({ layout: emptyLayout(), blocks: [] })
+    expect(controller.getSnapshot()).toEqual({ layout: emptyLayout(), blocks: [], titles: new Map() })
     expect(controller.getSnapshot()).toBe(controller.getSnapshot())
   })
 
@@ -559,5 +559,116 @@ describe('LayoutController beginResize / endResize', () => {
     expect(onAction).toHaveBeenCalledTimes(2)
     expect(onAction).toHaveBeenLastCalledWith(controller.getSnapshot().layout)
     expect(sizesOf(controller.getSnapshot())).toEqual([px(320), FR])
+  })
+})
+
+describe('LayoutController tab titles', () => {
+  const one: BlockRef = { blockId: 'n', contentId: 'one' }
+  const two: BlockRef = { blockId: 'n', contentId: 'two' }
+  const first = { en: 'First', zh: '第一' }
+  const second = { en: 'Second', fr: 'Deuxième' }
+  const titled = () =>
+    setup(
+      [meta('n', { multiInstance: true }), meta('a')],
+      [presetOf('p', 0, pane(0, ['n', 'one'], ['n', 'two'], ['a']))],
+    )
+  const titleOf = (controller: LayoutController, ref: BlockRef) => controller.getSnapshot().titles.get(tabKey(ref))
+
+  it('A2 setTabTitle on a tab in the layout lands in snapshot.titles under tabKey and publishes once', async () => {
+    const { controller } = await titled()
+    const listener = vi.fn()
+    controller.subscribe(listener)
+
+    controller.actions.setTabTitle(one, first)
+
+    expect(tabKey(one)).toBe('n\u0000one')
+    expect(titleOf(controller, one)).toEqual(first)
+    expect(titleOf(controller, two)).toBeUndefined()
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('A2 setting the same title again publishes nothing, a different one publishes, null removes', async () => {
+    const { controller } = await titled()
+    controller.actions.setTabTitle(one, first)
+    const listener = vi.fn()
+    controller.subscribe(listener)
+    const before = controller.getSnapshot()
+
+    controller.actions.setTabTitle(one, { ...first })
+    expect(listener).not.toHaveBeenCalled()
+    expect(controller.getSnapshot()).toBe(before)
+
+    controller.actions.setTabTitle(one, second)
+    expect(titleOf(controller, one)).toEqual(second)
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    controller.actions.setTabTitle(one, null)
+    expect(controller.getSnapshot().titles.has(tabKey(one))).toBe(false)
+    expect(listener).toHaveBeenCalledTimes(2)
+
+    controller.actions.setTabTitle(one, null)
+    expect(listener).toHaveBeenCalledTimes(2)
+  })
+
+  it('A2 a ref that is not a tab in the layout is ignored: no title, no publish', async () => {
+    const { controller } = await titled()
+    const listener = vi.fn()
+    controller.subscribe(listener)
+    const before = controller.getSnapshot()
+
+    controller.actions.setTabTitle({ blockId: 'n', contentId: 'three' }, first)
+    controller.actions.setTabTitle({ blockId: 'ghost', contentId: '' }, first)
+
+    expect(controller.getSnapshot()).toBe(before)
+    expect(controller.getSnapshot().titles.size).toBe(0)
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('A2 onAction listeners never hear a title change', async () => {
+    const { controller } = await titled()
+    const onAction = vi.fn()
+    controller.onAction(onAction)
+
+    controller.actions.setTabTitle(one, first)
+    controller.actions.setTabTitle(one, second)
+    controller.actions.setTabTitle(one, null)
+    controller.actions.beginResize()
+    controller.actions.setTabTitle(two, first)
+    controller.actions.endResize()
+
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('A3 closing a tab drops its title only, and reopening the same ref has no title', async () => {
+    const { controller } = await titled()
+    controller.actions.setTabTitle(one, first)
+    controller.actions.setTabTitle(two, second)
+
+    controller.actions.close(one)
+    expect(controller.getSnapshot().titles.has(tabKey(one))).toBe(false)
+    expect(titleOf(controller, two)).toEqual(second)
+
+    controller.actions.open(one)
+    expect(tabsOf(controller.getSnapshot())).toContain('n:one')
+    expect(titleOf(controller, one)).toBeUndefined()
+  })
+
+  it('A3 a tab that leaves the layout because its block unregistered loses its title, and comes back untitled', async () => {
+    const { controller, registry, owner } = await setup([meta('a')])
+    const dispose = registry.registerBlock(owner, meta('x', { multiInstance: true }), Component)
+    controller.actions.open({ blockId: 'a' })
+    controller.actions.open({ blockId: 'x', contentId: 'one' })
+    controller.settle()
+    const ref: BlockRef = { blockId: 'x', contentId: 'one' }
+    controller.actions.setTabTitle(ref, first)
+    expect(titleOf(controller, ref)).toEqual(first)
+
+    dispose()
+    expect(tabsOf(controller.getSnapshot())).not.toContain('x:one')
+    expect(controller.getSnapshot().titles.has(tabKey(ref))).toBe(false)
+
+    registry.registerBlock(owner, meta('x', { multiInstance: true }), Component)
+    controller.actions.open(ref)
+    expect(titleOf(controller, ref)).toBeUndefined()
   })
 })
