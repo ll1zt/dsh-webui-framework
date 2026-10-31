@@ -1,0 +1,28 @@
+{
+  "name": "@lllzt/dsh-webui-hello-block",
+  "version": "0.0.0",
+  "description": "Example dsh client plugin: registers blocks and a layout preset through the framework contract",
+  "private": true,
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "dsh": {
+    "client": {
+      "platform": "web"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "scripts": {
+    "build": "tsdown"
+  }
+}

@@ -56,7 +56,7 @@ const TEST_TITLE_GUARDS = [
 ]
 
 export default tseslint.config(
-  { ignores: ['lib/', 'node_modules/', 'ref/', 'coverage/'] },
+  { ignores: ['lib/', 'examples/*/lib/', 'node_modules/', 'ref/', 'coverage/'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
