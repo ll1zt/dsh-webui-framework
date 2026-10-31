@@ -43,12 +43,20 @@ type DockContext = Omit<DockViewProps, 'snapshot'> & {
 
 const blockLayouts = new WeakMap<object, BlockLayoutActions>()
 
-/** The five block actions of `actions`, the same object for the same `actions`, so blocks never see `resizeSplit` and friends. */
+/**
+ * The five block actions of `actions`, the same object for the same `actions`, so blocks never see `resizeSplit` and friends.
+ * Each one forwards to the method of the same name with `actions` as `this`, so methods that use `this` work too.
+ */
 function blockLayoutOf(actions: BlockLayoutActions): BlockLayoutActions {
   let layout = blockLayouts.get(actions)
   if (layout === undefined) {
-    const { open, close, activate, resize, resetToPreset } = actions
-    layout = { open, close, activate, resize, resetToPreset }
+    layout = {
+      open: (target) => actions.open(target),
+      close: (target) => actions.close(target),
+      activate: (target) => actions.activate(target),
+      resize: (target, size) => actions.resize(target, size),
+      resetToPreset: () => actions.resetToPreset(),
+    }
     blockLayouts.set(actions, layout)
   }
   return layout
