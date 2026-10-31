@@ -4,6 +4,7 @@ import { isValidElement, useEffect, useState, type ReactNode } from 'react'
 import type {
   BlockLayoutActions,
   BlockMeta,
+  BlockTarget,
   LayoutNode,
   LayoutSize,
   WebuiLayout,
@@ -483,6 +484,93 @@ describe('DockView block layout actions', () => {
     expect(actions.activate).toHaveBeenCalledWith(target)
     expect(actions.resize).toHaveBeenCalledWith(target, { fr: 2 })
     expect(actions.resetToPreset).toHaveBeenCalledTimes(1)
+  })
+
+  it('A1 this-bound methods of a class instance work through props.layout, each called with the instance as this and the original arguments', () => {
+    class ThisActions implements BlockLayoutActions {
+      calls: unknown[][] = []
+      open(target: BlockTarget): void {
+        this.calls.push(['open', this, target])
+      }
+      close(target: BlockTarget): void {
+        this.calls.push(['close', this, target])
+      }
+      activate(target: BlockTarget): void {
+        this.calls.push(['activate', this, target])
+      }
+      resize(target: BlockTarget, size: LayoutSize): void {
+        this.calls.push(['resize', this, target, size])
+      }
+      resetToPreset(): void {
+        this.calls.push(['resetToPreset', this])
+      }
+      resizeSplit(): void {}
+      beginResize(): void {}
+      endResize(): void {}
+    }
+    const actions = new ThisActions()
+    const { renderBlock } = renderDock(layoutOf(pane(0, ['a'])), [registration('a')], { actions })
+    const layout = renderBlock.mock.calls[0]?.[1].layout
+    if (layout === undefined) throw new Error('renderBlock was not called')
+    const target = { blockId: 'a', contentId: 'x' }
+
+    layout.open(target)
+    layout.close(target)
+    layout.activate(target)
+    layout.resize(target, { fr: 2 })
+    layout.resetToPreset()
+
+    expect(actions.calls).toEqual([
+      ['open', actions, target],
+      ['close', actions, target],
+      ['activate', actions, target],
+      ['resize', actions, target, { fr: 2 }],
+      ['resetToPreset', actions],
+    ])
+    for (const [, self] of actions.calls) expect(self).toBe(actions)
+  })
+
+  it('A5 this-bound method shorthands of an object literal work through props.layout, each called with that object as this and the original arguments', () => {
+    const actions: DockViewProps['actions'] & { calls: unknown[][] } = {
+      calls: [],
+      open(target: BlockTarget): void {
+        this.calls.push(['open', this, target])
+      },
+      close(target: BlockTarget): void {
+        this.calls.push(['close', this, target])
+      },
+      activate(target: BlockTarget): void {
+        this.calls.push(['activate', this, target])
+      },
+      resize(target: BlockTarget, size: LayoutSize): void {
+        this.calls.push(['resize', this, target, size])
+      },
+      resetToPreset(): void {
+        this.calls.push(['resetToPreset', this])
+      },
+      resizeSplit(): void {},
+      beginResize(): void {},
+      endResize(): void {},
+    }
+    const { renderBlock } = renderDock(layoutOf(pane(0, ['a'])), [registration('a')], { actions })
+    const layout = renderBlock.mock.calls[0]?.[1].layout
+    if (layout === undefined) throw new Error('renderBlock was not called')
+    const target = { blockId: 'a', contentId: 'x' }
+
+    layout.open(target)
+    layout.close(target)
+    layout.activate(target)
+    layout.resize(target, { fr: 2 })
+    layout.resetToPreset()
+
+    expect(actions.calls).toEqual([
+      ['open', actions, target],
+      ['close', actions, target],
+      ['activate', actions, target],
+      ['resize', actions, target, { fr: 2 }],
+      ['resetToPreset', actions],
+    ])
+    for (const [, self] of actions.calls) expect(self).toBe(actions)
   })
 
   it('A3 pointerdown on a separator calls actions.beginResize once, pointerup calls endResize once, the keyboard neither', () => {
