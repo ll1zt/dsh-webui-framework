@@ -26,6 +26,8 @@ dsh plugin --profile <p> add <path or tarball>
 
 内容包的 bundle 接在本框架之后。
 
+在 `0.2.2-alpha.2` 宿主上，`dsh --profile <p> --dump-config` 会打印 `patch: entry "ui-deepseek-model-label-1017" not found`。这是因为该版本的 web-app 没有这一行，属于预期现象，不影响页面。
+
 示例插件要先构建并打包，再从 tarball 安装：
 
 ```sh

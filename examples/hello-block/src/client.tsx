@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { useState } from 'react'
 import type { BlockInstanceProps, LayoutPreset } from '@lllzt/dsh-webui-framework/contract'
 
 export const name = 'hello-block'
@@ -14,8 +15,11 @@ function HelloRoot({ layout }: BlockInstanceProps) {
   )
 }
 
+let mounts = 0
+
 function HelloSession() {
-  return <div style={{ padding: 16, color: 'var(--text)' }}>Hello from a session block</div>
+  const [mount] = useState(() => ++mounts)
+  return <div style={{ padding: 16, color: 'var(--text)' }}>Hello from a session block, mount #{mount}</div>
 }
 
 function HelloBoom(): never {

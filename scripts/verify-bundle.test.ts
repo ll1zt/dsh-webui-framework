@@ -23,6 +23,7 @@ const SEED = [
   '@deepseek-ai/dsh-client-ui-dockkit',
 ]
 
+const HELLO_ID = '@lllzt/dsh-webui-hello-block'
 const BANNER = `window.__ModuleLoader__.load({ id: "${PLUGIN_ID}", factory: (require) => {`
 const FOOTER = 'return module.exports; } });'
 
@@ -51,8 +52,8 @@ const ensureBuilt = (): Promise<void> => {
 const declarationsOf = (css: string): string[] =>
   [...css.matchAll(/([a-z-]+)\s*:\s*([^;{}]+)/g)].map((match) => match[0].replace(/\s+/g, ''))
 
-const runCli = (libDir: string) =>
-  spawnSync(process.execPath, ['scripts/verify-bundle.ts', libDir], {
+const runCli = (libDir: string, ...extraArgs: string[]) =>
+  spawnSync(process.execPath, ['scripts/verify-bundle.ts', libDir, ...extraArgs], {
     cwd: ROOT,
     encoding: 'utf8',
     timeout: 120_000,
@@ -172,6 +173,23 @@ describe('verify-bundle CLI and budget', () => {
     const result = runCli('scripts/fixtures/valid')
     expect(`${result.stdout ?? ''}${result.stderr ?? ''}`).not.toContain('foreign-require')
     expect(result.status).toBe(0)
+  })
+
+  it('A1 verifyBundle checks the loader id against expectedId', async () => {
+    const libDir = join(ROOT, 'scripts/fixtures/other-id')
+    const accepted = await verifyBundle(libDir, { expectedId: HELLO_ID })
+    expect(codes(accepted.violations)).not.toContain('wrong-id')
+    const byDefault = await verifyBundle(libDir)
+    expect(codes(byDefault.violations)).toContain('wrong-id')
+  })
+
+  it('A1 cli --id selects the expected bundle id', () => {
+    const accepted = runCli('scripts/fixtures/other-id', '--id', HELLO_ID)
+    expect(`${accepted.stdout ?? ''}${accepted.stderr ?? ''}`).not.toContain('wrong-id')
+    expect(accepted.status).toBe(0)
+    const byDefault = runCli('scripts/fixtures/other-id')
+    expect(byDefault.status).toBe(1)
+    expect(`${byDefault.stdout ?? ''}${byDefault.stderr ?? ''}`).toContain('wrong-id')
   })
 
   it('A6 reports size budget for a tiny budget', async () => {
