@@ -290,3 +290,63 @@ describe('BlockRegistry invalid input', () => {
     expect(listener).not.toHaveBeenCalled()
   })
 })
+
+describe('BlockRegistry remount', () => {
+  it('A3 remount re-registers the entry through the same owner, once, and unloading the owner still removes it', async () => {
+    const { fake, join } = setup()
+    const registry = new BlockRegistry()
+    const alpha = await join('alpha')
+    registry.registerBlock(alpha.ctx, meta('X', 1), Component)
+    registry.registerBlock(alpha.ctx, meta('Y', 2), OTHER)
+    const beta = await join('beta')
+    registry.registerBlock(beta.ctx, meta('B', 3), OTHER)
+    const original = fake.slots.entries(ROOT_KEY).find((entry) => entry.options.id === 'X')
+
+    expect(registry.remount('X')).toBe(true)
+
+    const entries = fake.slots.entries(ROOT_KEY).filter((entry) => entry.options.id === 'X')
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).not.toBe(original)
+    expect(entries[0]?.component).toBe(Component)
+    expect(entries[0]?.options.priority).toBe(1)
+    expect(ids(fake.slots.entries(ROOT_KEY)).sort()).toEqual(['B', 'X', 'Y'])
+    expect(registry.blocks().map((block) => block.meta.id)).toEqual(['X', 'Y', 'B'])
+    expect(registry.blocks().map((block) => block.owner)).toEqual(['alpha', 'alpha', 'beta'])
+
+    await beta.unload()
+    expect(ids(fake.slots.entries(ROOT_KEY)).sort()).toEqual(['X', 'Y'])
+    await alpha.unload()
+    expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
+    expect(registry.blocks()).toHaveLength(0)
+  })
+
+  it('A3 a disposer called after remount still removes the block and its new entry', async () => {
+    const { fake, join } = setup()
+    const registry = new BlockRegistry()
+    const alpha = await join('alpha')
+    const dispose = registry.registerBlock(alpha.ctx, meta('X'), Component)
+
+    registry.remount('X')
+    dispose()
+
+    expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
+    expect(registry.blocks()).toHaveLength(0)
+  })
+
+  it('A3 remount of an id that was not registered through registerBlock returns false and changes nothing', async () => {
+    const { fake, join } = setup()
+    const registry = new BlockRegistry()
+    const alpha = await join('alpha')
+    registry.registerBlock(alpha.ctx, meta('X'), Component)
+    const foreign = alpha.ctx.slots.register({ name: ROOT_KEY, id: 'F' }, OTHER)
+    const entries = [...fake.slots.entries(ROOT_KEY)]
+
+    expect(registry.remount('F')).toBe(false)
+    expect(registry.remount('nope')).toBe(false)
+
+    expect(fake.slots.entries(ROOT_KEY)).toEqual(entries)
+    expect(fake.slots.entries(ROOT_KEY).every((entry, index) => entry === entries[index])).toBe(true)
+    expect(registry.blocks().map((block) => block.meta.id)).toEqual(['X'])
+    foreign()
+  })
+})

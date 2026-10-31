@@ -99,3 +99,70 @@ describe('root registration and webuiLayout', () => {
     expect(face.hooks.dock.getSnapshot().blocks.map((block) => block.meta.id)).toEqual(['a'])
   })
 })
+
+describe('block failures through the root seat', () => {
+  const ROOT_KEY = 'webui.block.root'
+
+  interface Face {
+    hooks: { errors: { getSnapshot(): ReadonlyMap<string, { blockId: string; error: Error }> } }
+    retryBlock(blockId: string): void
+  }
+
+  /** Load shell and layout, register block X through a contributor, and hand back the root inject face. */
+  async function loaded() {
+    const fake = createFakeContext()
+    const root = new Context()
+    root.provide('slots', fake.slots)
+    root.provide('locale', fake.locale)
+    await root.plugin(featureNamed('shell'))
+    await root.plugin(featureNamed('layout'))
+    const captured: Context[] = []
+    await root.plugin({ name: 'alpha', inject: ['webuiLayout'], apply: (ctx: Context) => void captured.push(ctx) })
+    const meta = { id: 'X', scope: 'root', priority: 0, title: { zh: 'X', en: 'X' }, closable: true } as const
+    captured[0]?.webuiLayout.registerBlock({ ...meta, multiInstance: false }, () => null)
+    const slots: FakeSlots = fake.slots
+    const inject = slots.entries('root')[0]?.options.inject
+    if (typeof inject !== 'function') throw new Error('the root registration has no inject factory')
+    return { fake, face: inject() as Face }
+  }
+
+  it('A1 a failure reported for a block entry shows in the errors the root seat injects', async () => {
+    const { fake, face } = await loaded()
+    const error = new Error('boom')
+
+    fake.slots.reportEntryError(ROOT_KEY, { options: { id: 'X' } }, error, { abdicated: true })
+
+    expect(face.hooks.errors.getSnapshot().get('X')).toEqual({ blockId: 'X', error })
+  })
+
+  it('A4 a report under another slot key leaves the errors empty', async () => {
+    const { fake, face } = await loaded()
+
+    fake.slots.reportEntryError('root', { options: { id: 'X' } }, new Error('boom'), { abdicated: true })
+
+    expect(face.hooks.errors.getSnapshot().size).toBe(0)
+  })
+
+  it('A3 retryBlock re-registers the block entry through its owner and clears the failure', async () => {
+    const { fake, face } = await loaded()
+    fake.slots.reportEntryError(ROOT_KEY, { options: { id: 'X' } }, new Error('boom'), { abdicated: true })
+    const original = fake.slots.entries(ROOT_KEY)[0]
+
+    face.retryBlock('X')
+
+    const entries = fake.slots.entries(ROOT_KEY)
+    expect(entries).toHaveLength(1)
+    expect(entries[0]).not.toBe(original)
+    expect(entries[0]?.options.id).toBe('X')
+    expect(face.hooks.errors.getSnapshot().size).toBe(0)
+  })
+
+  it('A3 retryBlock of an id that was not registered through webuiLayout keeps the failure', async () => {
+    const { fake, face } = await loaded()
+    fake.slots.reportEntryError(ROOT_KEY, { options: { id: 'F' } }, new Error('boom'), { abdicated: true })
+
+    face.retryBlock('F')
+
+    expect(face.hooks.errors.getSnapshot().has('F')).toBe(true)
+  })
+})

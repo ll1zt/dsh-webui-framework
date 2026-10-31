@@ -2,11 +2,14 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AppErrorBoundary, RegionBoundary } from './ErrorBoundary.tsx'
+import type { BlockFailure } from '../../client/services/entry-errors.ts'
+import { AppErrorBoundary, BlockErrorCard } from './ErrorBoundary.tsx'
 
 const ERROR_MESSAGE = 'boundary exploded'
 
 const translate = (key: string): string => key
+
+const failure = (error = new Error(ERROR_MESSAGE)): BlockFailure => ({ blockId: 'X', error })
 
 describe('ErrorBoundary', () => {
   afterEach(() => {
@@ -39,31 +42,78 @@ describe('ErrorBoundary', () => {
     expect(writeText).not.toHaveBeenCalled()
   })
 
-  it('A6 copies the error message and stack to the clipboard', () => {
-    vi.spyOn(console, 'error').mockImplementation(() => {})
+  it('A1 the block card is an alert with the title copy, the block title and the error message', () => {
+    render(<BlockErrorCard failure={failure()} title="Block X" t={translate} />)
+
+    const card = screen.getByRole('alert')
+    expect(card.textContent).toContain('shell.error.blockTitle')
+    expect(card.textContent).toContain('Block X')
+    expect(card.textContent).toContain(ERROR_MESSAGE)
+  })
+
+  it('A2 copy writes the message and the stack to the clipboard', () => {
     const writeText = vi.fn((_text: string) => Promise.resolve())
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
-    const reload = vi.fn()
-    vi.stubGlobal('location', { reload })
-
-    function Boom(): ReactNode {
-      throw new Error(ERROR_MESSAGE)
-    }
-
-    render(
-      <RegionBoundary region="main" t={translate}>
-        <Boom />
-      </RegionBoundary>,
-    )
+    render(<BlockErrorCard failure={failure()} title="Block X" t={translate} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'shell.error.copy' }))
 
     expect(writeText).toHaveBeenCalledTimes(1)
-    expect(reload).not.toHaveBeenCalled()
     const copied = String(writeText.mock.calls[0]?.[0])
     expect(copied).toContain(ERROR_MESSAGE)
-    // React's dev rethrow hands the boundary an error rebuilt by the browser error event, so compare the
-    // stack shape (a frame line) instead of the identity of the Error the test threw.
     expect(copied).toMatch(/^\s+at\s/m)
+  })
+
+  it('A2 copy writes only the message when the error has no stack', () => {
+    const writeText = vi.fn((_text: string) => Promise.resolve())
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const error = new Error(ERROR_MESSAGE)
+    delete error.stack
+    render(<BlockErrorCard failure={failure(error)} title="Block X" t={translate} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'shell.error.copy' }))
+
+    expect(writeText).toHaveBeenCalledWith(ERROR_MESSAGE)
+  })
+
+  it('A2 copy does not throw without navigator.clipboard', () => {
+    render(<BlockErrorCard failure={failure()} title="Block X" t={translate} />)
+
+    expect(() => fireEvent.click(screen.getByRole('button', { name: 'shell.error.copy' }))).not.toThrow()
+  })
+
+  it('A2 copy handles a rejected writeText instead of leaving it unhandled', () => {
+    const rejection = Promise.reject(new Error('denied'))
+    const handlerAttached = vi.spyOn(rejection, 'then')
+    let writes = 0
+    // a plain function: vi.fn would itself attach a handler to a returned promise
+    const writeText = (_text: string): Promise<void> => {
+      writes += 1
+      return rejection
+    }
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    render(<BlockErrorCard failure={failure()} title="Block X" t={translate} />)
+
+    expect(() => fireEvent.click(screen.getByRole('button', { name: 'shell.error.copy' }))).not.toThrow()
+
+    expect(writes).toBe(1)
+    expect(handlerAttached).toHaveBeenCalled()
+    rejection.catch(() => {})
+  })
+
+  it('A3 the retry button calls onRetry', () => {
+    const onRetry = vi.fn()
+    render(<BlockErrorCard failure={failure()} title="Block X" onRetry={onRetry} t={translate} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'shell.error.retry' }))
+
+    expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('A3 without onRetry there is no retry button', () => {
+    render(<BlockErrorCard failure={failure()} title="Block X" t={translate} />)
+
+    expect(screen.queryByRole('button', { name: 'shell.error.retry' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'shell.error.copy' })).not.toBeNull()
   })
 })

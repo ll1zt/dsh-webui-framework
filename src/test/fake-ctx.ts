@@ -25,11 +25,22 @@ export interface FakeSlotRegistration {
   children?: unknown
 }
 
+/** Shape of a `ctx.slots.onEntryError` listener. */
+export type EntryErrorListener = (
+  key: string,
+  registration: unknown,
+  error: unknown,
+  info: { abdicated: boolean },
+) => void
+
 /** `ctx.slots` recorder: registrations are kept per slot name until disposed. */
 export interface FakeSlots {
   register(options: Record<string, unknown>, component: unknown): () => void
   inject(key: string, callback: () => unknown): () => void
   provideRoot(contribution: unknown): () => void
+  onEntryError(listener: EntryErrorListener): () => void
+  /** Test trigger: call every `onEntryError` listener the way the host reports a failed entry. */
+  reportEntryError(key: string, registration: unknown, error: unknown, info: { abdicated: boolean }): void
   entries(key: string): readonly FakeSlotRegistration[]
   readonly injected: readonly { key: string; callback: () => unknown }[]
   readonly providedRoots: readonly unknown[]
@@ -80,6 +91,7 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
   const localeRegistrations: FakeLocaleRegistration[] = []
   const injected: { key: string; callback: () => unknown }[] = []
   const providedRoots: unknown[] = []
+  const entryErrorListeners: EntryErrorListener[] = []
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>()
   const activePlugins: string[] = []
 
@@ -136,6 +148,16 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
         if (index >= 0) providedRoots.splice(index, 1)
       })
     },
+    onEntryError(listener) {
+      entryErrorListeners.push(listener)
+      return track(() => {
+        const index = entryErrorListeners.indexOf(listener)
+        if (index >= 0) entryErrorListeners.splice(index, 1)
+      })
+    },
+    reportEntryError(key, registration, error, info) {
+      for (const listener of [...entryErrorListeners]) listener(key, registration, error, info)
+    },
     entries(key) {
       return registrations.filter((registration) => registration.options.name === key)
     },
@@ -191,6 +213,7 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
     localeRegistrations.length = 0
     injected.length = 0
     providedRoots.length = 0
+    entryErrorListeners.length = 0
     listeners.clear()
     activePlugins.length = 0
   }

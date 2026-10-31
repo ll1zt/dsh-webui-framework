@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentType, ReactNode } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { BlockInstanceProps, BlockMeta, LayoutNode, WebuiLayout } from '@lllzt/dsh-webui-framework/contract'
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { emptyLayout } from '../../lib/layout.ts'
-import type { RegionBoundaryProps } from '../../ui/shell/ErrorBoundary.tsx'
+import type { BlockErrorCardProps } from '../../ui/shell/ErrorBoundary.tsx'
 import type { BlockRegistration } from '../services/block-registry.ts'
+import type { BlockFailure } from '../services/entry-errors.ts'
 import type { DockSnapshot } from '../services/layout-controller.ts'
 import type { WebuiTranslate } from '../types.ts'
 import { App } from './App.tsx'
@@ -45,7 +46,14 @@ interface SessionProviderProps {
  * Hand App the props the root slot would compose for it. The root slot injects more seats than the
  * typed surface exposes here, so App is cast to a loose component.
  */
-function renderApp(snapshot: DockSnapshot, { hasSession = false, language = 'zh-CN' } = {}) {
+function renderApp(
+  snapshot: DockSnapshot,
+  {
+    hasSession = false,
+    language = 'zh-CN',
+    failures = new Map<string, BlockFailure>(),
+  }: { hasSession?: boolean; language?: string; failures?: ReadonlyMap<string, BlockFailure> } = {},
+) {
   const dockActions = { open: vi.fn(), close: vi.fn(), activate: vi.fn(), resize: vi.fn(), resetToPreset: vi.fn() }
   // A session-scope slot without a main session renders the caller's fallback; otherwise a marker.
   const renderSlot = vi.fn((key: string, _owner: BlockInstanceProps, opts: { only: string; fallback?: ReactNode }) =>
@@ -54,18 +62,21 @@ function renderApp(snapshot: DockSnapshot, { hasSession = false, language = 'zh-
   const SessionProvider = vi.fn(({ children, empty }: SessionProviderProps) =>
     hasSession || empty === undefined ? <>{children}</> : <>{empty()}</>,
   )
+  const retryBlock = vi.fn()
   const RootEntry = App as unknown as ComponentType<Record<string, unknown>>
   render(
     <RootEntry
       t={(key: string) => key}
       useDock={<S,>(select: (value: DockSnapshot) => S) => select(snapshot)}
       useLocale={<S,>(select: (value: unknown) => S) => select({ active: language, locales: [], revision: 0 })}
+      useErrors={<S,>(select: (value: ReadonlyMap<string, BlockFailure>) => S) => select(failures)}
+      retryBlock={retryBlock}
       dockActions={dockActions}
       renderSlot={renderSlot}
       SessionProvider={SessionProvider}
     />,
   )
-  return { renderSlot, SessionProvider, dockActions }
+  return { renderSlot, SessionProvider, dockActions, retryBlock }
 }
 
 describe('App', () => {
@@ -120,10 +131,26 @@ describe('App', () => {
     for (const [props] of SessionProvider.mock.calls) expect(props).not.toHaveProperty('session')
   })
 
+  it('A1 a failed block shows its error card in its cell and retry goes through retryBlock', () => {
+    const failures = new Map([['r1', { blockId: 'r1', error: new Error('r1 exploded') }]])
+    const snapshot = snapshotOf(
+      { kind: 'split', axis: 'row', children: [pane('r1'), pane('r2')], sizes: [{ fr: 1 }, { fr: 1 }] },
+      [registration('r1', 'root'), registration('r2', 'root')],
+    )
+    const { retryBlock } = renderApp(snapshot, { failures })
+
+    expect(screen.getByRole('alert').textContent).toContain('r1 exploded')
+    expect(screen.queryByTestId('slot-r1')).toBeNull()
+    expect(screen.getByTestId('slot-r2')).not.toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'shell.error.retry' }))
+    expect(retryBlock).toHaveBeenCalledWith('r1')
+  })
+
   it('A2 types the webui copy seat by the zh key set', () => {
     expectTypeOf<WebuiTranslate>().toEqualTypeOf<TranslateNS<'webui'>>()
     expectTypeOf<Parameters<typeof App>[0]['t']>().toEqualTypeOf<WebuiTranslate>()
-    expectTypeOf<RegionBoundaryProps['t']>().toEqualTypeOf<WebuiTranslate | undefined>()
+    expectTypeOf<BlockErrorCardProps['t']>().toEqualTypeOf<WebuiTranslate>()
 
     const t = ((key: string) => key) as WebuiTranslate
     // @ts-expect-error a key missing from locale/zh.json is a type error

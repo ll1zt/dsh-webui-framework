@@ -11,6 +11,7 @@ import type {
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { activateBlock } from '../../lib/layout-ops.ts'
 import type { BlockRegistration } from '../../client/services/block-registry.ts'
+import type { BlockFailure } from '../../client/services/entry-errors.ts'
 import type { WebuiTranslate } from '../../client/types.ts'
 import { DockView, type DockViewProps } from './DockView.tsx'
 
@@ -54,13 +55,31 @@ const markerOf = (meta: BlockMeta, contentId: string): string =>
 function renderDock(
   layout: WebuiLayout,
   blocks: BlockRegistration[],
-  { language = 'zh-CN', actions = makeActions() }: { language?: string; actions?: BlockLayoutActions } = {},
+  {
+    language = 'zh-CN',
+    actions = makeActions(),
+    failures,
+    onRetry,
+  }: {
+    language?: string
+    actions?: BlockLayoutActions
+    failures?: ReadonlyMap<string, BlockFailure>
+    onRetry?: (blockId: string) => void
+  } = {},
 ) {
   const renderBlock = vi.fn<DockViewProps['renderBlock']>((meta, instance) => (
     <div data-testid={markerOf(meta, instance.contentId)}>{meta.id}</div>
   ))
   render(
-    <DockView snapshot={{ layout, blocks }} actions={actions} renderBlock={renderBlock} t={t} language={language} />,
+    <DockView
+      snapshot={{ layout, blocks }}
+      actions={actions}
+      renderBlock={renderBlock}
+      t={t}
+      language={language}
+      {...(failures === undefined ? {} : { failures })}
+      {...(onRetry === undefined ? {} : { onRetry })}
+    />,
   )
   return { renderBlock, actions }
 }
@@ -214,5 +233,49 @@ describe('DockView', () => {
     expect(counterA.closest('[hidden]')).toBeNull()
     expect(screen.getByText('a:2')).not.toBeNull()
     expect(screen.getByTestId('counter-b').closest('[hidden]')).not.toBeNull()
+  })
+})
+
+describe('DockView block failures', () => {
+  const failures = new Map<string, BlockFailure>([['X', { blockId: 'X', error: new Error('x exploded') }]])
+  const twoPanes = layoutOf(row([pane(0, ['X']), pane(0, ['Y'])], [FR, FR]))
+  const blocks = [registration('X'), registration('Y')]
+
+  it('A1 a failed block shows an error card in its cell while the other cell still renders its block', () => {
+    const { renderBlock } = renderDock(twoPanes, blocks, { failures, language: 'en' })
+
+    const [first, second] = screen.getAllByRole('tablist').map(cellOf)
+    const card = within(first as HTMLElement).getByRole('alert')
+    expect(card.textContent).toContain('x exploded')
+    expect(card.textContent).toContain('X-en')
+    expect(within(first as HTMLElement).queryByTestId('block-X')).toBeNull()
+    expect(within(second as HTMLElement).queryByRole('alert')).toBeNull()
+    expect(within(second as HTMLElement).getByTestId('block-Y')).not.toBeNull()
+    expect(renderBlock.mock.calls.map(([meta]) => meta.id)).toEqual(['Y'])
+    expect(screen.getAllByRole('tab')).toHaveLength(2)
+  })
+
+  it('A1 without failures every block renders and there is no alert', () => {
+    const { renderBlock } = renderDock(twoPanes, blocks)
+
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(renderBlock.mock.calls.map(([meta]) => meta.id)).toEqual(['X', 'Y'])
+  })
+
+  it('A3 retry in the card of the failed block calls onRetry with its id', () => {
+    const onRetry = vi.fn()
+    renderDock(twoPanes, blocks, { failures, onRetry })
+
+    fireEvent.click(screen.getByRole('button', { name: 'shell.error.retry' }))
+
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    expect(onRetry).toHaveBeenCalledWith('X')
+  })
+
+  it('A3 without onRetry the card has no retry button', () => {
+    renderDock(twoPanes, blocks, { failures })
+
+    expect(screen.getByRole('alert')).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'shell.error.retry' })).toBeNull()
   })
 })
