@@ -53,14 +53,14 @@ export function Splitter({
     resizeEnd.current = onResizeEnd
   })
 
-  useEffect(
-    () => () => {
-      if (drag.current === null) return
-      drag.current = null
-      resizeEnd.current?.()
-    },
-    [],
-  )
+  // Reads only refs, so the closure the unmount cleanup captures at mount still sees the latest onResizeEnd.
+  const endDrag = (): void => {
+    if (drag.current === null) return
+    drag.current = null
+    resizeEnd.current?.()
+  }
+
+  useEffect(() => endDrag, [])
   const isRow = split.axis === 'row'
   const side = valueSide(split, index)
 
@@ -84,12 +84,6 @@ export function Splitter({
       default:
         return undefined
     }
-  }
-
-  const endDrag = (): void => {
-    if (drag.current === null) return
-    drag.current = null
-    onResizeEnd?.()
   }
 
   const coordinate = (event: PointerEvent): number => (isRow ? event.clientX : event.clientY)
