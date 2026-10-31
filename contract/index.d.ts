@@ -34,9 +34,14 @@ export interface LayoutFrSize {
 
 export type LayoutSize = LayoutPxSize | LayoutFrSize
 
+/**
+ * A text in several languages: `en` is required, every other key is a language tag (e.g. `zh`, `zh-TW`, `fr`).
+ * For a language the text is the key equal to it as written, else the key of its primary subtag
+ * (before the first '-', lower-cased), else `en`.
+ */
 export interface LocalizedText {
-  zh: string
-  en: string
+  readonly en: string
+  readonly [language: string]: string
 }
 
 /** Static description of a block, given once at registration. */
@@ -110,6 +115,18 @@ export interface BlockInstanceProps {
   contentId: string
   active: boolean
   layout: BlockLayoutActions
+  /** This tab's own handle; the same object for the same tab across renders. */
+  tab: BlockTabHandle
+}
+
+/** What a block instance can do to its own tab. */
+export interface BlockTabHandle {
+  /**
+   * Titles this tab (blockId + contentId); the tab button, its close button and its error card use it
+   * instead of the block's title. `null` restores the block's title. Ignored while the tab is not in the layout,
+   * and a tab's title is dropped when it leaves the layout. It is not a user action and is not saved.
+   */
+  setTitle(title: LocalizedText | null): void
 }
 
 export type BlockComponent = ComponentType<BlockInstanceProps>

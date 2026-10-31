@@ -6,6 +6,7 @@ import type {
   BlockMeta,
   BlockTarget,
   LayoutNode,
+  LocalizedText,
   LayoutSize,
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
@@ -16,6 +17,7 @@ import { activateBlock } from '../../lib/layout-ops.ts'
 import type { BlockRegistration } from '../../client/services/block-registry.ts'
 import type { BlockFailure } from '../../client/services/entry-errors.ts'
 import type { WebuiTranslate } from '../../client/types.ts'
+import { tabKey } from '../../client/services/layout-controller.ts'
 import { DockView, type DockViewProps } from './DockView.tsx'
 
 const t = ((key: string) => key) as WebuiTranslate
@@ -65,6 +67,7 @@ function renderDock(
     onRetry,
     wrapSession,
     translate = t,
+    titles,
   }: {
     language?: string
     actions?: DockViewProps['actions']
@@ -72,6 +75,7 @@ function renderDock(
     onRetry?: (blockId: string) => void
     wrapSession?: DockViewProps['wrapSession']
     translate?: WebuiTranslate
+    titles?: ReadonlyMap<string, LocalizedText>
   } = {},
 ) {
   const renderBlock = vi.fn<DockViewProps['renderBlock']>((meta, instance) => (
@@ -79,7 +83,7 @@ function renderDock(
   ))
   render(
     <DockView
-      snapshot={{ layout, blocks }}
+      snapshot={{ layout, blocks, ...(titles === undefined ? {} : { titles }) }}
       actions={actions}
       renderBlock={renderBlock}
       t={translate}
@@ -150,12 +154,14 @@ describe('DockView', () => {
       contentId: '',
       active: true,
       layout: expect.any(Object),
+      tab: expect.any(Object),
     })
     expect(renderBlock).toHaveBeenCalledWith(blocks[1]?.meta, {
       blockId: 'b',
       contentId: '',
       active: false,
       layout: expect.any(Object),
+      tab: expect.any(Object),
     })
     expect(renderBlock.mock.calls.map(([meta]) => meta.id)).not.toContain('ghost')
     for (const [, instance] of renderBlock.mock.calls) expect(instance).not.toHaveProperty('ctx')
@@ -650,5 +656,108 @@ describe('DockView close button names', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close tab: Bye' }))
     expect(actions.close).toHaveBeenCalledTimes(1)
     expect(actions.close).toHaveBeenCalledWith(expect.objectContaining({ blockId: 'bye' }))
+  })
+
+  describe('tab titles', () => {
+    const note = registration('n', { multiInstance: true, title: { en: 'Note', zh: '笔记' } })
+    const one = { blockId: 'n', contentId: 'one' }
+    const two = { blockId: 'n', contentId: 'two' }
+    const titlesOf = (...entries: [typeof one, LocalizedText][]) =>
+      new Map(entries.map(([ref, title]) => [tabKey(ref), title] as const))
+
+    it('A4 two tabs of one multi-instance block show their own titles, and each close button carries its own', () => {
+      const titles = titlesOf([one, { en: 'a.txt' }], [two, { en: 'b.txt' }])
+      renderDock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), [note], {
+        language: 'en',
+        translate: translateIn(en),
+        titles,
+      })
+
+      expect(screen.getByRole('tab', { name: 'a.txt' })).not.toBeNull()
+      expect(screen.getByRole('tab', { name: 'b.txt' })).not.toBeNull()
+      expect(screen.queryByRole('tab', { name: 'Note' })).toBeNull()
+      expect(screen.getByRole('button', { name: 'Close tab: a.txt' })).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Close tab: b.txt' })).not.toBeNull()
+    })
+
+    it('A4 a tab title follows the language, any language tag included', () => {
+      const titles = titlesOf([one, { en: 'a.txt', zh: '甲.txt', fr: 'fichier-a' }])
+      const layout = layoutOf(pane(0, ['n', 'one']))
+      renderDock(layout, [note], { language: 'zh-CN', translate: translateIn(zh), titles })
+      expect(screen.getByRole('tab', { name: '甲.txt' })).not.toBeNull()
+      expect(screen.getByRole('button', { name: '关闭标签：甲.txt' })).not.toBeNull()
+      cleanup()
+
+      renderDock(layout, [note], { language: 'fr-FR', translate: translateIn(en), titles })
+      expect(screen.getByRole('tab', { name: 'fichier-a' })).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Close tab: fichier-a' })).not.toBeNull()
+    })
+
+    it('A4 a tab without a tab title shows the block title', () => {
+      renderDock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), [note], {
+        language: 'en',
+        translate: translateIn(en),
+        titles: titlesOf([one, { en: 'a.txt' }]),
+      })
+
+      expect(screen.getByRole('tab', { name: 'a.txt' })).not.toBeNull()
+      expect(screen.getByRole('tab', { name: 'Note' })).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Close tab: Note' })).not.toBeNull()
+    })
+
+    it('A4 the error card of a failed tab is titled with the tab title', () => {
+      const failures = new Map<string, BlockFailure>([['n', { blockId: 'n', error: new Error('n exploded') }]])
+      renderDock(layoutOf(pane(0, ['n', 'one'])), [note], {
+        language: 'en',
+        failures,
+        titles: titlesOf([one, { en: 'a.txt' }]),
+      })
+
+      const card = screen.getByRole('alert')
+      expect(card.textContent).toContain('n exploded')
+      expect(card.textContent).toContain('a.txt')
+      expect(card.textContent).not.toContain('Note')
+    })
+  })
+})
+
+describe('DockView tab handle', () => {
+  const blocks = [registration('n', { multiInstance: true })]
+  const dock = (layout: WebuiLayout, actions: DockViewProps['actions'], renderBlock: DockViewProps['renderBlock']) => (
+    <DockView snapshot={{ layout, blocks }} actions={actions} renderBlock={renderBlock} t={t} language="en" />
+  )
+  const handleOf = (renderBlock: ReturnType<typeof vi.fn<DockViewProps['renderBlock']>>, contentId: string) => {
+    const call = renderBlock.mock.calls.find(([, instance]) => instance.contentId === contentId)
+    if (call === undefined) throw new Error(`no render for ${contentId}`)
+    return call[1].tab
+  }
+
+  it('A5 tab.setTitle forwards to actions.setTabTitle with the ref of that tab', () => {
+    const setTabTitle = vi.fn()
+    const actions = { ...makeActions(), setTabTitle }
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    render(dock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+
+    handleOf(renderBlock, 'one').setTitle({ en: 'a.txt' })
+    expect(setTabTitle).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'one' }, { en: 'a.txt' })
+    handleOf(renderBlock, 'two').setTitle(null)
+    expect(setTabTitle).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'two' }, null)
+    expect(setTabTitle).toHaveBeenCalledTimes(2)
+  })
+
+  it('A5 the same ref gets the same tab object across rerenders, another ref another one', () => {
+    const actions = { ...makeActions(), setTabTitle: vi.fn() }
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    const { rerender } = render(dock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+    const firstOne = handleOf(renderBlock, 'one')
+    const firstTwo = handleOf(renderBlock, 'two')
+    renderBlock.mockClear()
+
+    rerender(dock(layoutOf(pane(1, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+
+    expect(renderBlock).toHaveBeenCalled()
+    expect(handleOf(renderBlock, 'one')).toBe(firstOne)
+    expect(handleOf(renderBlock, 'two')).toBe(firstTwo)
+    expect(firstOne).not.toBe(firstTwo)
   })
 })

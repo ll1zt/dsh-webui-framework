@@ -4,23 +4,31 @@ import type {
   BlockInstanceProps,
   BlockLayoutActions,
   BlockMeta,
+  BlockRef,
+  BlockTabHandle,
   LayoutNode,
   LayoutPane,
   LayoutSize,
   LayoutSplit,
+  LocalizedText,
 } from '@lllzt/dsh-webui-framework/contract'
 import type { BlockRegistration } from '../../client/services/block-registry.ts'
 import type { BlockFailure } from '../../client/services/entry-errors.ts'
-import type { DockActions, DockSnapshot } from '../../client/services/layout-controller.ts'
+import { tabKey, type DockActions, type DockSnapshot } from '../../client/services/layout-controller.ts'
 import type { WebuiTranslate } from '../../client/types.ts'
+import { localizedTextFor } from '../../lib/localized-text.ts'
 import { BlockErrorCard } from './ErrorBoundary.tsx'
 import { Splitter } from './Splitter.tsx'
 import './dock.css'
 
 export interface DockViewProps {
-  snapshot: DockSnapshot
-  /** `resizeSplit` is what the splitters call; without it they still render but resize nothing. */
-  actions: BlockLayoutActions & Partial<Pick<DockActions, 'resizeSplit' | 'beginResize' | 'endResize'>>
+  /** `titles` may be left out when no tab has a title of its own. */
+  snapshot: Omit<DockSnapshot, 'titles'> & Partial<Pick<DockSnapshot, 'titles'>>
+  /**
+   * `resizeSplit` is what the splitters call; without it they still render but resize nothing.
+   * Without `setTabTitle`, `props.tab.setTitle` does nothing.
+   */
+  actions: BlockLayoutActions & Partial<Pick<DockActions, 'resizeSplit' | 'beginResize' | 'endResize' | 'setTabTitle'>>
   renderBlock: (meta: BlockMeta, instance: BlockInstanceProps) => ReactNode
   t: WebuiTranslate
   language: string
@@ -39,6 +47,8 @@ type DockContext = Omit<DockViewProps, 'snapshot'> & {
   metas: ReadonlyMap<string, BlockMeta>
   /** What blocks get as `props.layout`: the five block actions and nothing else of `actions`. */
   layout: BlockLayoutActions
+  /** The titles tabs gave themselves, by `tabKey`. */
+  titles: ReadonlyMap<string, LocalizedText>
 }
 
 const blockLayouts = new WeakMap<object, BlockLayoutActions>()
@@ -62,6 +72,25 @@ function blockLayoutOf(actions: BlockLayoutActions): BlockLayoutActions {
   return layout
 }
 
+const tabHandles = new WeakMap<object, Map<string, BlockTabHandle>>()
+
+/** The handle of tab `ref`, the same object for the same `actions` and tab; `setTitle` forwards to `actions.setTabTitle`. */
+function tabHandleOf(actions: DockViewProps['actions'], ref: BlockRef): BlockTabHandle {
+  let handles = tabHandles.get(actions)
+  if (handles === undefined) {
+    handles = new Map()
+    tabHandles.set(actions, handles)
+  }
+  const key = tabKey(ref)
+  let handle = handles.get(key)
+  if (handle === undefined) {
+    const tabRef: BlockRef = { blockId: ref.blockId, contentId: ref.contentId }
+    handle = { setTitle: (title) => actions.setTabTitle?.(tabRef, title) }
+    handles.set(key, handle)
+  }
+  return handle
+}
+
 const FILL: LayoutSize = { fr: 1 }
 
 function sizeStyle(size: LayoutSize = FILL): CSSProperties {
@@ -69,12 +98,13 @@ function sizeStyle(size: LayoutSize = FILL): CSSProperties {
   return { flexBasis: 0, flexGrow: size.fr, flexShrink: 1 }
 }
 
-function titleOf(meta: BlockMeta, language: string): string {
-  return language.startsWith('zh') ? meta.title.zh : meta.title.en
+/** The tab's own title when it has one, else the block's. */
+function titleOf(meta: BlockMeta, tabTitle: LocalizedText | undefined, language: string): string {
+  return localizedTextFor(tabTitle ?? meta.title, language)
 }
 
 function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNode {
-  const { actions, layout, renderBlock, t, language, metas, failures, onRetry, wrapSession } = dock
+  const { actions, layout, renderBlock, t, language, metas, titles, failures, onRetry, wrapSession } = dock
   // Tabs keep their index in the layout, so `active` still lines up when an unregistered block is skipped.
   const tabs = pane.tabs.flatMap((ref, index) => {
     const meta = metas.get(ref.blockId)
@@ -83,13 +113,19 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
   const contentOf = (ref: LayoutPane['tabs'][number], meta: BlockMeta, active: boolean): ReactNode => {
     const failure = failures?.get(ref.blockId)
     if (failure === undefined) {
-      const body = renderBlock(meta, { blockId: ref.blockId, contentId: ref.contentId, active, layout })
+      const body = renderBlock(meta, {
+        blockId: ref.blockId,
+        contentId: ref.contentId,
+        active,
+        layout,
+        tab: tabHandleOf(actions, ref),
+      })
       return meta.scope === 'session' && wrapSession !== undefined ? wrapSession(body) : body
     }
     return (
       <BlockErrorCard
         failure={failure}
-        title={titleOf(meta, language)}
+        title={titleOf(meta, titles.get(tabKey(ref)), language)}
         {...(onRetry === undefined ? {} : { onRetry: () => onRetry(ref.blockId) })}
         t={t}
       />
@@ -99,12 +135,7 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
     <div className="webui-dock-pane">
       <div className="webui-dock-tabs" role="tablist">
         {tabs.map(({ ref, meta, active }) => (
-          <div
-            key={`${ref.blockId}\u0000${ref.contentId}`}
-            className="webui-dock-tab"
-            data-active={active}
-            role="presentation"
-          >
+          <div key={tabKey(ref)} className="webui-dock-tab" data-active={active} role="presentation">
             <button
               type="button"
               role="tab"
@@ -112,13 +143,13 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
               aria-selected={active}
               onClick={() => actions.activate(ref)}
             >
-              {titleOf(meta, language)}
+              {titleOf(meta, titles.get(tabKey(ref)), language)}
             </button>
             {meta.closable && (
               <button
                 type="button"
                 className="webui-dock-tab-close"
-                aria-label={t('dock.tab.close', { title: titleOf(meta, language) })}
+                aria-label={t('dock.tab.close', { title: titleOf(meta, titles.get(tabKey(ref)), language) })}
                 onClick={() => actions.close(ref)}
               >
                 ×
@@ -130,10 +161,10 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
       <div className="webui-dock-panels">
         {tabs.map(({ ref, meta, active }) => (
           <div
-            key={`${ref.blockId}\u0000${ref.contentId}`}
+            key={tabKey(ref)}
             className="webui-dock-panel"
             role="tabpanel"
-            aria-label={titleOf(meta, language)}
+            aria-label={titleOf(meta, titles.get(tabKey(ref)), language)}
             hidden={!active}
           >
             {contentOf(ref, meta, active)}
@@ -191,7 +222,11 @@ export function DockView({ snapshot, ...dock }: DockViewProps): ReactNode {
   const metas = new Map(snapshot.blocks.map((block: BlockRegistration) => [block.meta.id, block.meta]))
   return (
     <div className="webui-dock">
-      <Node node={root} path={[]} dock={{ ...dock, metas, layout: blockLayoutOf(dock.actions) }} />
+      <Node
+        node={root}
+        path={[]}
+        dock={{ ...dock, metas, titles: snapshot.titles ?? new Map(), layout: blockLayoutOf(dock.actions) }}
+      />
     </div>
   )
 }
