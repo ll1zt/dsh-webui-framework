@@ -4,9 +4,7 @@ import { cleanup, render } from '@testing-library/react'
 import { createElement } from 'react'
 import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it } from 'vitest'
-
-// Imported dynamically: the example resolves the framework contract through its own tsconfig, which the root typecheck does not use.
-const EXAMPLE_CLIENT = '../examples/hello-block/src/client.tsx'
+import { apply } from '../examples/hello-block/src/client.tsx'
 
 afterEach(cleanup)
 
@@ -24,7 +22,6 @@ const registeredBlock = async (blockId: string): Promise<ComponentType<Record<st
     webuiLayout: layout,
     inject: (_keys: string[], callback: (ctx: unknown) => unknown) => callback(fakeCtx),
   }
-  const { apply } = (await import(/* @vite-ignore */ EXAMPLE_CLIENT)) as { apply: (ctx: Context) => void }
   apply(fakeCtx as unknown as Context)
   const component = blocks.get(blockId)
   if (!component) throw new Error(`${blockId} was not registered`)
@@ -38,6 +35,10 @@ const mountNumber = (text: string | null): number => {
 }
 
 describe('example session block', () => {
+  it('A1 loads the example client by a static import', () => {
+    expect(typeof apply).toBe('function')
+  })
+
   it('A3 shows a mount number that differs per mount and survives a rerender', async () => {
     const HelloSession = await registeredBlock('hello.session')
 
