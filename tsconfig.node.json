@@ -1,7 +1,10 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "types": ["node"]
+    "types": ["node"],
+    "paths": {
+      "@lllzt/dsh-webui-framework/contract": ["./contract/index.d.ts"]
+    }
   },
   "include": ["scripts", "*.config.ts", "src/**/*.test.ts", "src/**/*.test.tsx", "src/test", "src/**/*.d.ts"],
   "exclude": []
