@@ -1,5 +1,5 @@
 /** Draws the layout tree: splits as flex rows or columns, panes as a tab strip over their mounted blocks. */
-import type { CSSProperties, ReactNode } from 'react'
+import { useRef, type CSSProperties, type ReactNode } from 'react'
 import type {
   BlockInstanceProps,
   BlockLayoutActions,
@@ -7,17 +7,20 @@ import type {
   LayoutNode,
   LayoutPane,
   LayoutSize,
+  LayoutSplit,
 } from '@lllzt/dsh-webui-framework/contract'
 import type { BlockRegistration } from '../../client/services/block-registry.ts'
 import type { BlockFailure } from '../../client/services/entry-errors.ts'
-import type { DockSnapshot } from '../../client/services/layout-controller.ts'
+import type { DockActions, DockSnapshot } from '../../client/services/layout-controller.ts'
 import type { WebuiTranslate } from '../../client/types.ts'
 import { BlockErrorCard } from './ErrorBoundary.tsx'
+import { Splitter } from './Splitter.tsx'
 import './dock.css'
 
 export interface DockViewProps {
   snapshot: DockSnapshot
-  actions: BlockLayoutActions
+  /** `resizeSplit` is what the splitters call; without it they still render but resize nothing. */
+  actions: BlockLayoutActions & Partial<Pick<DockActions, 'resizeSplit'>>
   renderBlock: (meta: BlockMeta, instance: BlockInstanceProps) => ReactNode
   t: WebuiTranslate
   language: string
@@ -110,18 +113,39 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
   )
 }
 
-function Node({ node, dock }: { node: LayoutNode; dock: DockContext }): ReactNode {
-  if (node.kind === 'pane') return <Pane pane={node} dock={dock} />
+function Split({ split, path, dock }: { split: LayoutSplit; path: readonly number[]; dock: DockContext }): ReactNode {
+  const element = useRef<HTMLDivElement>(null)
+  const containerPx = (): number => {
+    const box = element.current?.getBoundingClientRect()
+    return (split.axis === 'row' ? box?.width : box?.height) ?? 0
+  }
   return (
-    <div className="webui-dock-split" style={{ flexDirection: node.axis }}>
-      {node.children.map((child, index) => (
+    <div ref={element} className="webui-dock-split" style={{ flexDirection: split.axis }}>
+      {split.children.flatMap((child, index) => [
         // A layout is rewritten whole, so a child keeps its slot index and nothing else identifies it.
-        <div key={index} className="webui-dock-cell" style={sizeStyle(node.sizes[index])}>
-          <Node node={child} dock={dock} />
-        </div>
-      ))}
+        ...(index === 0
+          ? []
+          : [
+              <Splitter
+                key={`splitter-${index - 1}`}
+                split={split}
+                index={index - 1}
+                containerPx={containerPx}
+                onResize={(next) => dock.actions.resizeSplit?.(path, next.sizes)}
+                label={dock.t('dock.splitter')}
+              />,
+            ]),
+        <div key={`cell-${index}`} className="webui-dock-cell" style={sizeStyle(split.sizes[index])}>
+          <Node node={child} path={[...path, index]} dock={dock} />
+        </div>,
+      ])}
     </div>
   )
+}
+
+function Node({ node, path, dock }: { node: LayoutNode; path: readonly number[]; dock: DockContext }): ReactNode {
+  if (node.kind === 'pane') return <Pane pane={node} dock={dock} />
+  return <Split split={node} path={path} dock={dock} />
 }
 
 /**
@@ -134,7 +158,7 @@ export function DockView({ snapshot, ...dock }: DockViewProps): ReactNode {
   const metas = new Map(snapshot.blocks.map((block: BlockRegistration) => [block.meta.id, block.meta]))
   return (
     <div className="webui-dock">
-      <Node node={root} dock={{ ...dock, metas }} />
+      <Node node={root} path={[]} dock={{ ...dock, metas }} />
     </div>
   )
 }

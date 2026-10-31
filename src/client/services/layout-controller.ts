@@ -3,10 +3,11 @@ import type {
   BlockLayoutActions,
   BlockMeta,
   BlockTarget,
+  LayoutNode,
   LayoutSize,
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
-import { chooseLayout, resolveLayout, type LayoutCatalog } from '../../lib/layout.ts'
+import { chooseLayout, clampSize, replaceAt, resolveLayout, type LayoutCatalog } from '../../lib/layout.ts'
 import { activateBlock, closeBlock, openBlock, resizeBlock } from '../../lib/layout-ops.ts'
 import type { BlockRegistration, BlockRegistry } from './block-registry.ts'
 
@@ -14,6 +15,30 @@ import type { BlockRegistration, BlockRegistry } from './block-registry.ts'
 export interface DockSnapshot {
   layout: WebuiLayout
   blocks: readonly BlockRegistration[]
+}
+
+/** What the dock itself can do to the layout beyond what blocks are given. */
+export interface DockActions extends BlockLayoutActions {
+  /** Replaces the sizes of the split at `path` (child indices from the root); ignored when it is no split or the count differs. */
+  resizeSplit(path: readonly number[], sizes: readonly LayoutSize[]): void
+}
+
+function nodeAtPath(root: LayoutNode, path: readonly number[]): LayoutNode | undefined {
+  let node: LayoutNode | undefined = root
+  for (const index of path) {
+    if (node?.kind !== 'split') return undefined
+    node = node.children[index]
+  }
+  return node
+}
+
+/** The layout with the sizes of the split at `path` replaced; the same layout when no split there fits `sizes`. */
+function resizeSplitAt(layout: WebuiLayout, path: readonly number[], sizes: readonly LayoutSize[]): WebuiLayout {
+  const { root } = layout
+  const target = root === null ? undefined : nodeAtPath(root, path)
+  if (root === null || target?.kind !== 'split' || target.children.length !== sizes.length) return layout
+  const next = replaceAt(root, path, (at) => (at.kind === 'split' ? { ...at, sizes: sizes.map(clampSize) } : at))
+  return { ...layout, root: next }
 }
 
 /** The layout of one page, as an observable snapshot the injected `useDock` hook reads. */
@@ -25,13 +50,14 @@ export class LayoutController {
   /** True until the layout is first set by an action or a saved layout: until then it follows the presets. */
   #following = true
 
-  readonly actions: BlockLayoutActions = {
+  readonly actions: DockActions = {
     open: (target) => this.#update((layout, catalog) => openBlock(layout, target, catalog)),
     close: (target) => this.#update((layout, catalog) => closeBlock(layout, target, catalog)),
     activate: (target) => this.#update((layout, catalog) => activateBlock(layout, this.#singled(target, catalog))),
     resize: (target, size: LayoutSize) =>
       this.#update((layout, catalog) => resizeBlock(layout, this.#singled(target, catalog), size)),
     resetToPreset: () => this.#update((_layout, catalog) => this.#adopt(undefined, catalog)),
+    resizeSplit: (path, sizes) => this.#update((layout) => resizeSplitAt(layout, path, sizes)),
   }
 
   constructor(registry: BlockRegistry) {
