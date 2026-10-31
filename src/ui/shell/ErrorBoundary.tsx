@@ -1,21 +1,14 @@
 /**
- * The shell's two failure faces: a per-region card that leaves the rest of the
- * page alive, and a whole-page panel for a crash above every region. These are
- * the package's only class components — catching a render error is the one
- * thing hooks cannot do.
+ * The shell's two failure faces: a per-block card that leaves the rest of the
+ * page alive, and a whole-page panel for a crash above every block. The page
+ * panel is the package's only class component — catching a render error is the
+ * one thing hooks cannot do. The per-block card needs no boundary: the host
+ * wraps every slot entry itself and reports the failure.
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import type { BlockFailure } from '../../client/services/entry-errors.ts'
+import { LOG_PREFIX } from '../../client/services/log-prefix.ts'
 import type { WebuiTranslate } from '../../client/types.ts'
-
-export type RegionName = 'sidebar' | 'topbar' | 'main' | 'right'
-
-const LOG_PREFIX = '[webui-framework]'
-
-export interface RegionBoundaryProps {
-  region: RegionName
-  children: ReactNode
-  t?: WebuiTranslate | undefined
-}
 
 interface AppErrorBoundaryProps {
   children: ReactNode
@@ -50,47 +43,36 @@ function copyErrorText(error: Error | undefined): void {
   void navigator.clipboard?.writeText(text).catch(() => {})
 }
 
+export interface BlockErrorCardProps {
+  failure: BlockFailure
+  /** The failed block's title in the current language. */
+  title: string
+  /** Retry the block; the button shows only when given. */
+  onRetry?: () => void
+  t: WebuiTranslate
+}
+
 /**
- * Show the crash of one region in place of its content, keeping siblings alive.
+ * Show a block's failure in place of the block, keeping every other cell alive.
  */
-export class RegionBoundary extends Component<RegionBoundaryProps, BoundaryState> {
-  override state: BoundaryState = { error: undefined }
-
-  static getDerivedStateFromError(thrown: unknown): BoundaryState {
-    return { error: toError(thrown) }
-  }
-
-  override componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error(`${LOG_PREFIX} ${this.props.region}`, error, info.componentStack ?? '')
-  }
-
-  private readonly copy = (): void => {
-    copyErrorText(this.state.error)
-  }
-
-  private readonly retry = (): void => {
-    this.setState({ error: undefined })
-  }
-
-  override render(): ReactNode {
-    const { error } = this.state
-    if (error === undefined) return this.props.children
-    const { t } = this.props
-    return (
-      <div className="webui-error-card" role="alert">
-        <p className="webui-error-title">{shellText(t, 'shell.error.regionTitle', 'This area failed to load')}</p>
-        <pre className="webui-error-detail">{error.message}</pre>
-        <div className="webui-error-actions">
-          <button type="button" className="webui-error-action" onClick={this.copy}>
-            {shellText(t, 'shell.error.copy', 'Copy error')}
+export function BlockErrorCard({ failure, title, onRetry, t }: BlockErrorCardProps): ReactNode {
+  return (
+    <div className="webui-error-card" role="alert">
+      <p className="webui-error-title">{t('shell.error.blockTitle')}</p>
+      <p>{title}</p>
+      <pre className="webui-error-detail">{failure.error.message}</pre>
+      <div className="webui-error-actions">
+        <button type="button" className="webui-error-action" onClick={() => copyErrorText(failure.error)}>
+          {t('shell.error.copy')}
+        </button>
+        {onRetry !== undefined && (
+          <button type="button" className="webui-error-action" onClick={onRetry}>
+            {t('shell.error.retry')}
           </button>
-          <button type="button" className="webui-error-action" onClick={this.retry}>
-            {shellText(t, 'shell.error.retry', 'Retry')}
-          </button>
-        </div>
+        )}
       </div>
-    )
-  }
+    </div>
+  )
 }
 
 /**
