@@ -2,18 +2,28 @@
 import type {
   BlockLayoutActions,
   BlockMeta,
+  BlockRef,
   BlockTarget,
+  LayoutNode,
   LayoutSize,
+  LocalizedText,
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
 import { chooseLayout, clampSize, nodeAt, replaceAt, resolveLayout, type LayoutCatalog } from '../../lib/layout.ts'
 import { activateBlock, closeBlock, openBlock, resizeBlock } from '../../lib/layout-ops.ts'
 import type { BlockRegistration, BlockRegistry } from './block-registry.ts'
 
-/** What the dock renders: the layout tree and the blocks registered right now. */
+/** The key of a tab in `DockSnapshot.titles`. */
+export function tabKey(ref: BlockRef): string {
+  return `${ref.blockId}\u0000${ref.contentId}`
+}
+
+/** What the dock renders: the layout tree, the blocks registered right now and the titles tabs gave themselves. */
 export interface DockSnapshot {
   layout: WebuiLayout
   blocks: readonly BlockRegistration[]
+  /** Tab titles by `tabKey`, replacing the block's title for that tab. A controller sets it only for tabs in `layout`. */
+  titles: ReadonlyMap<string, LocalizedText>
 }
 
 /** What the dock itself can do to the layout beyond what blocks are given. */
@@ -24,6 +34,25 @@ export interface DockActions extends BlockLayoutActions {
   beginResize(): void
   /** Ends the gesture; when the layout differs from the one `onAction` listeners last heard (or the one at `beginResize`), each hears it once. */
   endResize(): void
+  /**
+   * Titles the tab `ref`, or restores the block's title with `null`. Ignored when `ref` is no tab in the layout
+   * and when the title is unchanged. Not a user action: `onAction` listeners hear nothing and nothing is saved.
+   */
+  setTabTitle(ref: BlockRef, title: LocalizedText | null): void
+}
+
+/** Every tab key in the layout. */
+function tabKeysOf(node: LayoutNode | null, keys = new Set<string>()): Set<string> {
+  if (node === null) return keys
+  if (node.kind === 'pane') for (const ref of node.tabs) keys.add(tabKey(ref))
+  else for (const child of node.children) tabKeysOf(child, keys)
+  return keys
+}
+
+/** Whether two texts hold the same languages with the same strings. */
+function sameText(a: LocalizedText, b: LocalizedText): boolean {
+  const keys = Object.keys(a)
+  return keys.length === Object.keys(b).length && keys.every((key) => Object.hasOwn(b, key) && a[key] === b[key])
 }
 
 /** The layout with the sizes of the split at `path` replaced; the same layout when no split there fits `sizes`. */
@@ -65,19 +94,33 @@ export class LayoutController {
       const layout = this.#snapshot.layout
       if (layout !== began) this.#notify(layout)
     },
+    setTabTitle: (ref, title) => {
+      const { blocks, layout, titles } = this.#snapshot
+      const key = tabKey(ref)
+      const current = titles.get(key)
+      if (title === null) {
+        if (current === undefined) return
+      } else if ((current !== undefined && sameText(current, title)) || !tabKeysOf(layout.root).has(key)) {
+        return
+      }
+      const next = new Map(titles)
+      if (title === null) next.delete(key)
+      else next.set(key, { ...title })
+      this.#publish({ layout, blocks, titles: next })
+    },
   }
 
   constructor(registry: BlockRegistry) {
     this.#registry = registry
     const blocks = registry.blocks()
-    this.#snapshot = { layout: this.#adopt(undefined, this.#catalogOf(blocks)), blocks }
+    this.#snapshot = { layout: this.#adopt(undefined, this.#catalogOf(blocks)), blocks, titles: new Map() }
     registry.subscribe(() => {
       const next = registry.blocks()
       const catalog = this.#catalogOf(next)
       const layout = this.#following
         ? this.#adopt(undefined, catalog)
         : resolveLayout(this.#snapshot.layout, catalog).layout
-      this.#publish({ layout, blocks: next })
+      this.#publish({ layout, blocks: next, titles: this.#snapshot.titles })
     })
   }
 
@@ -104,9 +147,9 @@ export class LayoutController {
   settle(): void {
     if (this.#settled) return
     this.#settled = true
-    const { blocks, layout } = this.#snapshot
+    const { blocks, layout, titles } = this.#snapshot
     const resolved = resolveLayout(layout, this.#catalogOf(blocks))
-    if (resolved.repaired) this.#publish({ layout: resolved.layout, blocks })
+    if (resolved.repaired) this.#publish({ layout: resolved.layout, blocks, titles })
   }
 
   /**
@@ -130,7 +173,7 @@ export class LayoutController {
     this.#settled = settled
     this.#following = false
     const blocks = this.#registry.blocks()
-    this.#publish({ layout: this.#adopt(saved, this.#catalogOf(blocks)), blocks })
+    this.#publish({ layout: this.#adopt(saved, this.#catalogOf(blocks)), blocks, titles: this.#snapshot.titles })
   }
 
   #catalogOf(blocks: readonly BlockRegistration[]): LayoutCatalog {
@@ -149,10 +192,10 @@ export class LayoutController {
 
   #update(change: (layout: WebuiLayout, catalog: LayoutCatalog) => WebuiLayout, deferrable = false): void {
     this.#following = false
-    const { blocks, layout } = this.#snapshot
+    const { blocks, layout, titles } = this.#snapshot
     const next = change(layout, this.#catalogOf(blocks))
     if (next === layout) return
-    this.#publish({ layout: next, blocks })
+    this.#publish({ layout: next, blocks, titles })
     if (deferrable && this.#gesture !== null) return
     this.#notify(next)
     if (this.#gesture !== null) this.#gesture = next
@@ -162,8 +205,11 @@ export class LayoutController {
     for (const listener of [...this.#actionListeners]) listener(layout)
   }
 
+  /** Publishes `snapshot`, dropping the titles of tabs that are no longer in its layout. */
   #publish(snapshot: DockSnapshot): void {
-    this.#snapshot = snapshot
+    const keys = tabKeysOf(snapshot.layout.root)
+    const kept = [...snapshot.titles].filter(([key]) => keys.has(key))
+    this.#snapshot = kept.length === snapshot.titles.size ? snapshot : { ...snapshot, titles: new Map(kept) }
     for (const listener of [...this.#listeners]) listener()
   }
 }
