@@ -20,7 +20,7 @@ function setup(split: LayoutSplit, index = 0) {
   const onResizeStart = vi.fn<() => void>()
   const onResizeEnd = vi.fn<() => void>()
   const containerPx = vi.fn(() => 1000)
-  render(
+  const { unmount } = render(
     <Splitter
       split={split}
       index={index}
@@ -32,7 +32,7 @@ function setup(split: LayoutSplit, index = 0) {
     />,
   )
   const separator = screen.getByRole('separator', { name: 'Resize panes' })
-  return { separator, onResize, containerPx, onResizeStart, onResizeEnd }
+  return { separator, onResize, containerPx, onResizeStart, onResizeEnd, unmount }
 }
 
 /** The sizes handed to the latest onResize call. */
@@ -273,5 +273,39 @@ describe('Splitter', () => {
 
     expect(onResizeStart).not.toHaveBeenCalled()
     expect(onResizeEnd).not.toHaveBeenCalled()
+  })
+
+  it('A4 unmounting between pointerdown and pointerup calls onResizeEnd once', () => {
+    const { separator, onResizeEnd, unmount } = setup(splitOf('row', [px(200), FR]))
+    stubCapture(separator)
+
+    fireEvent.pointerDown(separator, { pointerId: 1, clientX: 100 })
+    fireEvent.pointerMove(separator, { pointerId: 1, clientX: 110 })
+    expect(onResizeEnd).not.toHaveBeenCalled()
+    unmount()
+
+    expect(onResizeEnd).toHaveBeenCalledTimes(1)
+  })
+
+  it('A4 unmounting without a pointerdown calls no onResizeEnd', () => {
+    const { onResizeEnd, unmount } = setup(splitOf('row', [px(200), FR]))
+
+    unmount()
+
+    expect(onResizeEnd).not.toHaveBeenCalled()
+  })
+
+  it('A4 unmounting after pointerup or pointercancel calls no second onResizeEnd', () => {
+    const { separator, onResizeEnd, unmount } = setup(splitOf('row', [px(200), FR]))
+    stubCapture(separator)
+
+    fireEvent.pointerDown(separator, { pointerId: 1, clientX: 100 })
+    fireEvent.pointerUp(separator, { pointerId: 1, clientX: 110 })
+    fireEvent.pointerDown(separator, { pointerId: 2, clientX: 100 })
+    fireEvent.pointerCancel(separator, { pointerId: 2 })
+    expect(onResizeEnd).toHaveBeenCalledTimes(2)
+    unmount()
+
+    expect(onResizeEnd).toHaveBeenCalledTimes(2)
   })
 })

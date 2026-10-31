@@ -516,4 +516,57 @@ describe('LayoutController beginResize / endResize', () => {
     expect(onAction).toHaveBeenCalledTimes(1)
     expect(onAction).toHaveBeenLastCalledWith(controller.getSnapshot().layout)
   })
+
+  /** A row of two panes where closing tab `c` leaves the split in place. */
+  async function gestureWithTabs() {
+    const { controller } = await setup(
+      [meta('a'), meta('b'), meta('c')],
+      [presetOf('p', 0, row([pane(0, ['a'], ['c']), pane(0, ['b'])], [px(260), FR]))],
+    )
+    const onAction = vi.fn<(layout: WebuiLayout) => void>()
+    controller.onAction(onAction)
+    return { controller, onAction }
+  }
+
+  it('A1 a close during a gesture notifies once, and endResize adds nothing', async () => {
+    const { controller, onAction } = await gesture()
+
+    controller.actions.beginResize()
+    controller.actions.close({ blockId: 'b' })
+    expect(onAction).toHaveBeenCalledTimes(1)
+    controller.actions.endResize()
+
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect(onAction).toHaveBeenLastCalledWith(controller.getSnapshot().layout)
+  })
+
+  it('A2 a close after a drag resize notifies at once with the dragged sizes, and endResize adds nothing', async () => {
+    const { controller, onAction } = await gestureWithTabs()
+
+    controller.actions.beginResize()
+    controller.actions.resizeSplit([], [px(300), FR])
+    controller.actions.close({ blockId: 'c' })
+
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect(onAction).toHaveBeenLastCalledWith(controller.getSnapshot().layout)
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(300), FR])
+
+    controller.actions.endResize()
+    expect(onAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('A3 a resize after a close during a gesture is notified once more by endResize, with the final layout', async () => {
+    const { controller, onAction } = await gestureWithTabs()
+
+    controller.actions.beginResize()
+    controller.actions.close({ blockId: 'c' })
+    expect(onAction).toHaveBeenCalledTimes(1)
+    controller.actions.resizeSplit([], [px(320), FR])
+    expect(onAction).toHaveBeenCalledTimes(1)
+    controller.actions.endResize()
+
+    expect(onAction).toHaveBeenCalledTimes(2)
+    expect(onAction).toHaveBeenLastCalledWith(controller.getSnapshot().layout)
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(320), FR])
+  })
 })
