@@ -36,6 +36,9 @@ function tabsOf(controller: LayoutController): string[] {
 /** A real registry with blocks `a` and `b` and the preset `[a]`, under a real controller. */
 async function setup() {
   const fake = createFakeContext()
+  // Blocks enter a declared slot only; the root entry's children table is what declares these keys.
+  fake.slots.declare('webui.block.root')
+  fake.slots.declare('webui.block.session')
   const root = new Context()
   root.provide('slots', fake.slots)
   const captured: Context[] = []

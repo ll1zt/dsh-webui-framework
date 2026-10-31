@@ -42,6 +42,9 @@ const FR: LayoutSize = { fr: 1 }
 /** A real registry with a contributor context, the way block-registry.test.ts builds one. */
 async function setup(blocks: BlockMeta[] = [], presets: LayoutPreset[] = []) {
   const fake = createFakeContext()
+  // Blocks enter a declared slot only; the root entry's children table is what declares these keys.
+  fake.slots.declare('webui.block.root')
+  fake.slots.declare('webui.block.session')
   const root = new Context()
   root.provide('slots', fake.slots)
   const captured: Context[] = []
