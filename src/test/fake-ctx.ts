@@ -71,6 +71,11 @@ export interface FakeContextInspection {
    * exists on this context; otherwise the feature stays inactive and nothing is applied.
    */
   plugin(feature: { name?: string; inject?: readonly string[]; apply(ctx: Context): void }): void
+  /**
+   * Wait for services the way `ctx.inject` does: `callback` runs with this context once every named service exists on it
+   * (now, or never here: the fake does not watch for services added later); returns the disposer of what it started.
+   */
+  inject(names: readonly string[], callback: (ctx: Context) => void): () => void
   /** Names of the features `plugin` activated, in activation order. */
   readonly activePlugins: readonly string[]
   /** Dispose everything collected, in reverse order, and empty every record. */
@@ -231,10 +236,20 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
     feature.apply(fake as unknown as Context)
   }
 
+  const inject = (names: readonly string[], callback: (ctx: Context) => void): (() => void) => {
+    const services = fake as unknown as Record<string, unknown>
+    if (names.some((service) => services[service] === undefined)) return () => {}
+    callback(fake as unknown as Context)
+    return () => {}
+  }
+
   // Service subclasses announce themselves through `ctx.reflect.provide`; the fake needs no registry for them.
   const reflect = { provide: (): (() => void) => () => {} }
 
-  const fake = Object.assign({ slots, locale, reflect, effect, on, emit, plugin, activePlugins, disposeAll }, overrides)
+  const fake = Object.assign(
+    { slots, locale, reflect, effect, on, emit, plugin, inject, activePlugins, disposeAll },
+    overrides,
+  )
   // A real context points at its root; this one is its own root, so features can key shared state by it.
   Object.assign(fake, { root: fake })
   // A cordis Context is a class whose private members no plain object can mirror, so this single cast is

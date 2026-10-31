@@ -18,6 +18,9 @@ function sources(dir: string): string[] {
 }
 
 const files = sources(join(ROOT, 'src'))
+const NODE_ENTRY = join(ROOT, 'src', 'index.ts')
+/** The browser half: every source file except the Node entry. */
+const browserFiles = files.filter((file) => file !== NODE_ENTRY)
 
 /**
  * A value import of an @deepseek-ai module: `import x from '…'`, `import { a } from '…'`
@@ -26,9 +29,9 @@ const files = sources(join(ROOT, 'src'))
 const VALUE_IMPORT = /(?:import\s+(?!type\b)[^'"]*?\sfrom\s*|require\(\s*)['"](@deepseek-ai\/[^'"]+)['"]/g
 
 describe('src value imports of host packages', () => {
-  it('A1 a value import names a platform seed exactly, never a subpath or another package', () => {
+  it('A1 a value import in the browser half names a platform seed exactly, never a subpath or another package', () => {
     const offenders: string[] = []
-    for (const file of files) {
+    for (const file of browserFiles) {
       const text = readFileSync(file, 'utf8')
       for (const match of text.matchAll(VALUE_IMPORT)) {
         const specifier = match[1] ?? ''
@@ -36,6 +39,17 @@ describe('src value imports of host packages', () => {
       }
     }
     expect(offenders).toEqual([])
+  })
+})
+
+describe('Node half value imports', () => {
+  /** Every module the Node entry imports for its value: `import x from`, side-effect `import '…'` and `require`. */
+  const ANY_VALUE_IMPORT = /(?:import\s+(?!type\b)(?:[^'"]*?\sfrom\s*)?|require\(\s*)['"]([^'"]+)['"]/g
+
+  it('A1 the Node half value-imports only @deepseek-ai/schemastery', () => {
+    const text = readFileSync(NODE_ENTRY, 'utf8')
+    const specifiers = [...text.matchAll(ANY_VALUE_IMPORT)].map((match) => match[1])
+    expect(specifiers.filter((specifier) => specifier !== '@deepseek-ai/schemastery')).toEqual([])
   })
 })
 
