@@ -423,10 +423,12 @@ describe('LayoutController onAction', () => {
 })
 
 describe('LayoutController beginResize / endResize', () => {
-  const twoPanes = () => presetOf('p', 0, row([pane(0, ['a']), pane(0, ['b'])], [px(260), FR]))
+  const twoPanes = () => row([pane(0, ['a']), pane(0, ['b'])], [px(260), FR])
+  /** The first pane holds tabs a and c, so closing c keeps the split. */
+  const tabsRow = () => row([pane(0, ['a'], ['c']), pane(0, ['b'])], [px(260), FR])
 
-  async function gesture() {
-    const { controller } = await setup([meta('a'), meta('b'), meta('c')], [twoPanes()])
+  async function gesture(root = twoPanes()) {
+    const { controller } = await setup([meta('a'), meta('b'), meta('c')], [presetOf('p', 0, root)])
     const onAction = vi.fn<(layout: WebuiLayout) => void>()
     const subscriber = vi.fn()
     controller.onAction(onAction)
@@ -517,17 +519,6 @@ describe('LayoutController beginResize / endResize', () => {
     expect(onAction).toHaveBeenLastCalledWith(controller.getSnapshot().layout)
   })
 
-  /** A row of two panes where closing tab `c` leaves the split in place. */
-  async function gestureWithTabs() {
-    const { controller } = await setup(
-      [meta('a'), meta('b'), meta('c')],
-      [presetOf('p', 0, row([pane(0, ['a'], ['c']), pane(0, ['b'])], [px(260), FR]))],
-    )
-    const onAction = vi.fn<(layout: WebuiLayout) => void>()
-    controller.onAction(onAction)
-    return { controller, onAction }
-  }
-
   it('A1 a close during a gesture notifies once, and endResize adds nothing', async () => {
     const { controller, onAction } = await gesture()
 
@@ -541,7 +532,7 @@ describe('LayoutController beginResize / endResize', () => {
   })
 
   it('A2 a close after a drag resize notifies at once with the dragged sizes, and endResize adds nothing', async () => {
-    const { controller, onAction } = await gestureWithTabs()
+    const { controller, onAction } = await gesture(tabsRow())
 
     controller.actions.beginResize()
     controller.actions.resizeSplit([], [px(300), FR])
@@ -556,7 +547,7 @@ describe('LayoutController beginResize / endResize', () => {
   })
 
   it('A3 a resize after a close during a gesture is notified once more by endResize, with the final layout', async () => {
-    const { controller, onAction } = await gestureWithTabs()
+    const { controller, onAction } = await gesture(tabsRow())
 
     controller.actions.beginResize()
     controller.actions.close({ blockId: 'c' })
