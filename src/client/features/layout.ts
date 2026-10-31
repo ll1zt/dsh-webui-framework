@@ -1,9 +1,10 @@
 /** Layout feature: provides `webuiLayout`, through which other plugins register blocks and presets, and keeps the layout in the profile. */
 import type { Context } from '@deepseek-ai/cordis'
-import { WebuiLayout } from '../services/block-registry.ts'
+import { slotDeclarationsOf, WebuiLayout, type BlockRegistry } from '../services/block-registry.ts'
 import { dockOf } from '../services/dock-state.ts'
 import { LAYOUT_NAMESPACE, LayoutPersistence, type LayoutConfigForm } from '../services/layout-persistence.ts'
 import { LOG_PREFIX } from '../services/log-prefix.ts'
+import { WEBUI_SLOT_KEYS } from '../types.ts'
 import type { WebuiFeature } from './index.ts'
 
 // Both services are optional and belong to other host plugins, so only the part used here is declared.
@@ -17,14 +18,42 @@ declare module '@deepseek-ai/cordis' {
 }
 
 /**
- * Expose the page registry as `ctx.webuiLayout`; the service leaves with this plugin's fiber.
- * `configForms` and `loader` are optional: each is waited for with `ctx.inject`, never listed in the
- * feature's `inject`, so the page starts without them and the layout then stays in memory.
+ * Expose the page registry as `ctx.webuiLayout` once the root block slot is declared: a contributor that
+ * receives the service earlier registers its blocks into a slot the host has not published yet. The service
+ * leaves with this plugin's fiber.
+ * @param ctx - client root context.
+ * @param registry - the page registry the service forwards to.
+ */
+function provideLayout(ctx: Context, registry: BlockRegistry): void {
+  const declarations = slotDeclarationsOf(ctx.slots)
+  const slotKey = WEBUI_SLOT_KEYS.root
+  if (declarations.declared(slotKey)) {
+    new WebuiLayout(ctx, registry)
+    return
+  }
+  ctx.effect(() => {
+    let live = true
+    const stopWaiting = declarations.onDeclared(slotKey, () => {
+      if (!live || !declarations.declared(slotKey)) return
+      live = false
+      new WebuiLayout(ctx, registry)
+    })
+    return () => {
+      live = false
+      stopWaiting()
+    }
+  }, 'webui: webuiLayout')
+}
+
+/**
+ * Provide `webuiLayout` once the block slots exist; `configForms` and `loader` are optional: each is waited for
+ * with `ctx.inject`, never listed in the feature's `inject`, so the page starts without them and the layout then
+ * stays in memory.
  * @param ctx - client root context.
  */
 function apply(ctx: Context): void {
   const { registry, controller } = dockOf(ctx)
-  new WebuiLayout(ctx, registry)
+  provideLayout(ctx, registry)
 
   ctx.inject(['configForms'], (ctx) => {
     ctx.effect(

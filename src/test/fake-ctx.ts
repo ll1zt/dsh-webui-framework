@@ -39,6 +39,18 @@ export interface FakeSlots {
   inject(key: string, callback: () => unknown): () => void
   provideRoot(contribution: unknown): () => void
   onEntryError(listener: EntryErrorListener): () => void
+  /**
+   * Test switch: when true, `register` refuses a key no entry has declared yet, the way the host does
+   * (`a parent entry's children table must declare it`). Off by default, so tests that predate declarations
+   * keep registering into bare keys.
+   */
+  refuseUndeclared: boolean
+  /** Mirrors the host's declaration ledger: 0 before the first declaration, positive afterwards. */
+  declarationEpoch(key: string): number
+  /** Declaration listeners of a key, fired synchronously on every declaration; the disposer unsubscribes. */
+  subscribeDeclaration(key: string, callback: () => void): () => void
+  /** Test trigger: declare a key the way a parent entry's `children` table does. */
+  declare(key: string): void
   /** Test trigger: call every `onEntryError` listener the way the host reports a failed entry. */
   reportEntryError(key: string, registration: unknown, error: unknown, info: { abdicated: boolean }): void
   entries(key: string): readonly FakeSlotRegistration[]
@@ -97,8 +109,16 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
   const injected: { key: string; callback: () => unknown }[] = []
   const providedRoots: unknown[] = []
   const entryErrorListeners: EntryErrorListener[] = []
+  const declarationEpochs = new Map<string, number>()
+  const declarationListeners = new Map<string, Set<() => void>>()
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>()
   const activePlugins: string[] = []
+  let refuseUndeclared = false
+
+  const declare = (key: string): void => {
+    declarationEpochs.set(key, (declarationEpochs.get(key) ?? 0) + 1)
+    for (const listener of [...(declarationListeners.get(key) ?? [])]) listener()
+  }
 
   const track = (dispose: () => void): (() => void) => {
     let live = true
@@ -113,7 +133,11 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
 
   const slots: FakeSlots = {
     register(options, component) {
-      const registration: FakeSlotRegistration = { options: { name: String(options.name) }, component }
+      const name = String(options.name)
+      if (refuseUndeclared && (declarationEpochs.get(name) ?? 0) === 0) {
+        throw new Error(`slot "${name}" is not declared (a parent entry's children table must declare it)`)
+      }
+      const registration: FakeSlotRegistration = { options: { name }, component }
       const { priority, locale, store, children, inject } = options
       if (typeof priority === 'number') registration.options.priority = priority
       if (typeof options.key === 'string') registration.options.key = options.key
@@ -133,11 +157,37 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
       }
       if (inject !== undefined) registration.options.inject = inject
       registrations.push(registration)
+      // The host publishes the entry first and its children table last, committing every sibling declaration
+      // before the first notification (ref/deepseek-harness/packages/client/ui-slots/src/index.ts:1245-1310).
+      const childKeys =
+        children === undefined || children === null || typeof children !== 'object' ? [] : Object.keys(children)
+      for (const childKey of childKeys) declarationEpochs.set(childKey, (declarationEpochs.get(childKey) ?? 0) + 1)
+      for (const childKey of childKeys) {
+        for (const listener of [...(declarationListeners.get(childKey) ?? [])]) listener()
+      }
       return track(() => {
         const index = registrations.indexOf(registration)
         if (index >= 0) registrations.splice(index, 1)
       })
     },
+    get refuseUndeclared() {
+      return refuseUndeclared
+    },
+    set refuseUndeclared(value: boolean) {
+      refuseUndeclared = value
+    },
+    declarationEpoch(key) {
+      return declarationEpochs.get(key) ?? 0
+    },
+    subscribeDeclaration(key, callback) {
+      const set = declarationListeners.get(key) ?? new Set<() => void>()
+      declarationListeners.set(key, set)
+      set.add(callback)
+      return track(() => {
+        set.delete(callback)
+      })
+    },
+    declare,
     inject(key, callback) {
       const record = { key, callback }
       injected.push(record)
@@ -219,6 +269,9 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
     injected.length = 0
     providedRoots.length = 0
     entryErrorListeners.length = 0
+    declarationEpochs.clear()
+    declarationListeners.clear()
+    refuseUndeclared = false
     listeners.clear()
     activePlugins.length = 0
   }

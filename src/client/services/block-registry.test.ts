@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeContext, type FakeContext } from '../../test/fake-ctx.ts'
 import { FEATURES } from '../features/index.ts'
 import { BlockRegistry, compareByPriorityThenId } from './block-registry.ts'
+import { LOG_PREFIX } from './log-prefix.ts'
 
 const ROOT_KEY = 'webui.block.root'
 const SESSION_KEY = 'webui.block.session'
@@ -21,13 +22,18 @@ function preset(id: string, priority = 0): LayoutPreset {
   return { id, priority, layout: EMPTY_LAYOUT }
 }
 
-/** A real cordis root that provides the fake slots recorder, plus helpers to start contributor plugins. */
-function setup(): {
+/**
+ * A real cordis root that provides the fake slots recorder, plus helpers to start contributor plugins.
+ * Both block slots are declared by default, the way the root entry's children table declares them; pass
+ * `declarations = []` for a host that has not declared anything yet.
+ */
+function setup(declarations: readonly string[] = [ROOT_KEY, SESSION_KEY]): {
   fake: FakeContext
   root: Context
   join(name: string): Promise<{ ctx: Context; unload(): Promise<void> }>
 } {
   const fake = createFakeContext()
+  for (const key of declarations) fake.slots.declare(key)
   const root = new Context()
   root.provide('slots', fake.slots)
   const join = async (name: string): Promise<{ ctx: Context; unload(): Promise<void> }> => {
@@ -138,6 +144,108 @@ describe('BlockRegistry registration and disposal', () => {
     expect(ids(fake.slots.entries(SESSION_KEY))).toEqual(['beta-session'])
     await beta.dispose()
     expect(fake.slots.entries(SESSION_KEY)).toHaveLength(0)
+  })
+})
+
+describe('BlockRegistry before the slot is declared', () => {
+  it('A1 a block registered before its slot is declared mounts once the declaration arrives and leaves nothing behind before', async () => {
+    const { fake, join } = setup([])
+    fake.slots.refuseUndeclared = true
+    const registry = new BlockRegistry()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const alpha = await join('alpha')
+
+    let dispose: () => void = () => {}
+    expect(() => {
+      dispose = registry.registerBlock(alpha.ctx, meta('late', 1, 'root'), Component)
+    }).not.toThrow()
+
+    expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
+    expect(registry.blocks()).toHaveLength(0)
+    expect(registry.diagnostics()).toHaveLength(0)
+    expect(warn).not.toHaveBeenCalled()
+
+    fake.slots.declare(ROOT_KEY)
+
+    expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['late'])
+    expect(fake.slots.entries(ROOT_KEY)[0]?.component).toBe(Component)
+    expect(registry.blocks().map((block) => block.meta.id)).toEqual(['late'])
+    expect(registry.diagnostics()).toHaveLength(0)
+    expect(warn).not.toHaveBeenCalled()
+
+    // A second declaration notification must not mount the block a second time.
+    fake.slots.declare(ROOT_KEY)
+    expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['late'])
+    expect(registry.blocks().map((block) => block.meta.id)).toEqual(['late'])
+
+    dispose()
+    expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
+    expect(registry.blocks()).toHaveLength(0)
+  })
+
+  it('A1 a block cancelled before the declaration never mounts, whether its disposer ran or its plugin unloaded', async () => {
+    const { fake, join } = setup([])
+    fake.slots.refuseUndeclared = true
+    const registry = new BlockRegistry()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const alpha = await join('alpha')
+    const beta = await join('beta')
+
+    const disposeDropped = registry.registerBlock(alpha.ctx, meta('dropped', 1, 'root'), Component)
+    registry.registerBlock(beta.ctx, meta('unloaded', 2, 'root'), OTHER)
+    disposeDropped()
+    await beta.unload()
+
+    fake.slots.declare(ROOT_KEY)
+
+    expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
+    expect(registry.blocks()).toHaveLength(0)
+  })
+
+  it('A1 a declaration whose mount still throws warns once and leaves the block out of blocks()', async () => {
+    const { fake, join } = setup([])
+    fake.slots.refuseUndeclared = true
+    const registry = new BlockRegistry()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const alpha = await join('alpha')
+    registry.registerBlock(alpha.ctx, meta('broken', 1, 'root'), Component)
+    vi.spyOn(fake.slots, 'register').mockImplementation(() => {
+      throw new Error('slot "webui.block.root" is not declared')
+    })
+
+    fake.slots.declare(ROOT_KEY)
+
+    expect(registry.blocks()).toHaveLength(0)
+    expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0]).startsWith(LOG_PREFIX)).toBe(true)
+  })
+
+  it('A2 a block whose slot is declared up front enters it at once, and the two block keys stay independent', async () => {
+    const { fake, join } = setup()
+    fake.slots.refuseUndeclared = true
+    fake.slots.declare(ROOT_KEY)
+    fake.slots.declare(SESSION_KEY)
+    const registry = new BlockRegistry()
+    const alpha = await join('alpha')
+
+    const disposeRoot = registry.registerBlock(alpha.ctx, meta('r1', 1, 'root'), Component)
+    const disposeSession = registry.registerBlock(alpha.ctx, meta('s1', 2, 'session'), OTHER)
+
+    expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['r1'])
+    expect(ids(fake.slots.entries(SESSION_KEY))).toEqual(['s1'])
+    expect(fake.slots.entries(ROOT_KEY)[0]?.component).toBe(Component)
+    expect(registry.blocks().map((block) => block.meta.id)).toEqual(['r1', 's1'])
+    expect(registry.diagnostics()).toHaveLength(0)
+    expect(registry.remount('r1')).toBe(true)
+    expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['r1'])
+
+    disposeRoot()
+    expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
+    expect(ids(fake.slots.entries(SESSION_KEY))).toEqual(['s1'])
+    disposeSession()
+    expect(fake.slots.entries(SESSION_KEY)).toHaveLength(0)
+    expect(registry.blocks()).toHaveLength(0)
   })
 })
 

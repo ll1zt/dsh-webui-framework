@@ -71,6 +71,47 @@ describe('webuiLayout without the layout feature', () => {
   })
 })
 
+describe('webuiLayout waits for the block slots', () => {
+  const ROOT_KEY = 'webui.block.root'
+  const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+  function host(): { fake: ReturnType<typeof createFakeContext>; root: Context } {
+    const fake = createFakeContext()
+    const root = new Context()
+    root.provide('slots', fake.slots)
+    root.provide('locale', fake.locale)
+    return { fake, root }
+  }
+
+  it('A3 the layout feature provides webuiLayout only after the block slots are declared', async () => {
+    const { fake, root } = host()
+    await root.plugin(featureNamed('layout'))
+
+    // A counter, not a spy: an assertion failure must not print a cordis context.
+    let starts = 0
+    const waiting = root.plugin({ name: 'alpha', inject: ['webuiLayout'], apply: () => void (starts += 1) })
+    await flush()
+    expect(starts).toBe(0)
+
+    fake.slots.declare(ROOT_KEY)
+    await waiting
+    await flush()
+    expect(starts).toBe(1)
+  })
+
+  it('A3 with the shell applied first webuiLayout is provided without a further declaration', async () => {
+    const { root } = host()
+    await root.plugin(featureNamed('shell'))
+    await root.plugin(featureNamed('layout'))
+
+    let starts = 0
+    root.inject(['webuiLayout'], () => void (starts += 1))
+    await flush()
+
+    expect(starts).toBe(1)
+  })
+})
+
 describe('root registration and webuiLayout', () => {
   it('A1 the controller the root seat injects sees the blocks registered through ctx.webuiLayout', async () => {
     const fake = createFakeContext()
