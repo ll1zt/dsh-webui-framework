@@ -167,3 +167,36 @@ describe('contract subpath', () => {
     ])
   })
 })
+
+describe('published tarball content', () => {
+  /** What the package shipped before the README: `lib/` only exists after a build, so the list is an upper bound. */
+  const SHIPPED = [
+    'package.json',
+    'lib/index.js',
+    'lib/client.js',
+    'lib/client.js.map',
+    'contract/index.d.ts',
+    'cordis.patch.yml',
+    'locale/zh.json',
+    'locale/en.json',
+  ]
+
+  const packedPaths = (): string[] => {
+    const result = spawnSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      timeout: 120_000,
+    })
+    expect(result.status).toBe(0)
+    const report = JSON.parse(result.stdout) as { files: { path: string }[] }[]
+    return (report[0]?.files ?? []).map((file) => file.path)
+  }
+
+  it('A2 packs README.md, nothing under examples/ and no other file than the shipped set', () => {
+    const paths = packedPaths()
+    expect(paths).toContain('README.md')
+    expect(paths.filter((path) => path.startsWith('examples/'))).toEqual([])
+    expect(paths.filter((path) => path !== 'README.md' && !SHIPPED.includes(path))).toEqual([])
+    expect(paths).toEqual(expect.arrayContaining(['package.json', 'contract/index.d.ts', 'cordis.patch.yml']))
+  }, 120_000)
+})
