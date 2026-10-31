@@ -3,6 +3,8 @@ import type {
   BlockComponent,
   BlockMeta,
   BlockRef,
+  LayoutActionRejection,
+  LayoutActionResult,
   LayoutNode,
   LayoutPreset,
   LayoutSize,
@@ -205,6 +207,130 @@ describe('LayoutController actions', () => {
     controller.actions.open({ blockId: 'a' })
 
     expect(listener).not.toHaveBeenCalled()
+  })
+})
+
+describe('LayoutController action results', () => {
+  /** Runs the call and checks it was rejected for the reason with the layout untouched and nobody told. */
+  function expectRejected(controller: LayoutController, call: () => unknown, reason: LayoutActionRejection) {
+    const listener = vi.fn()
+    const onAction = vi.fn()
+    controller.subscribe(listener)
+    controller.onAction(onAction)
+    const before = controller.getSnapshot()
+
+    expect(call()).toEqual({ ok: false, reason })
+
+    expect(controller.getSnapshot()).toBe(before)
+    expect(listener).not.toHaveBeenCalled()
+    expect(onAction).not.toHaveBeenCalled()
+  }
+
+  const OK: LayoutActionResult = { ok: true }
+
+  it('A1 open of a block that never registered is rejected as unknown-block and changes nothing', async () => {
+    const { controller } = await setup([meta('a')])
+    controller.actions.open({ blockId: 'a' })
+
+    expectRejected(controller, () => controller.actions.open({ blockId: 'ghost' }), 'unknown-block')
+  })
+
+  it('A1 open of a registered block returns ok, whether it is new, already open or given a stray contentId', async () => {
+    const { controller } = await setup([meta('a'), meta('b')])
+
+    expect(controller.actions.open({ blockId: 'a' })).toEqual(OK)
+    expect(controller.actions.open({ blockId: 'b' })).toEqual(OK)
+    expect(controller.actions.open({ blockId: 'a' })).toEqual(OK)
+    expect(activeOf(controller.getSnapshot())).toBe(0)
+    expect(controller.actions.open({ blockId: 'b', contentId: 'stray' })).toEqual(OK)
+    expect(tabsOf(controller.getSnapshot())).toEqual(['a', 'b'])
+  })
+
+  it('A2 close is rejected as unknown-block, not-closable or no-such-tab, in that order, changing nothing', async () => {
+    const { controller } = await setup(
+      [meta('pin', { closable: false }), meta('a'), meta('m', { multiInstance: true })],
+      [presetOf('p', 0, pane(0, ['pin'], ['m', 'x']))],
+    )
+
+    expectRejected(controller, () => controller.actions.close({ blockId: 'ghost' }), 'unknown-block')
+    expectRejected(controller, () => controller.actions.close({ blockId: 'pin' }), 'not-closable')
+    expectRejected(controller, () => controller.actions.close({ blockId: 'a' }), 'no-such-tab')
+    expectRejected(controller, () => controller.actions.close({ blockId: 'm', contentId: 'nope' }), 'no-such-tab')
+  })
+
+  it('A2 close of a closable open tab returns ok, closes it and tells subscribers and onAction', async () => {
+    const { controller } = await setup([meta('a'), meta('b')], [presetOf('p', 0, pane(0, ['a'], ['b']))])
+    const listener = vi.fn()
+    const onAction = vi.fn()
+    controller.subscribe(listener)
+    controller.onAction(onAction)
+
+    expect(controller.actions.close({ blockId: 'b' })).toEqual(OK)
+
+    expect(tabsOf(controller.getSnapshot())).toEqual(['a'])
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(onAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('A3 activate and resize are rejected as unknown-block for a block that never registered', async () => {
+    const { controller } = await setup(
+      [meta('a'), meta('b')],
+      [presetOf('p', 0, row([pane(0, ['a']), pane(0, ['b'])], [px(260), FR]))],
+    )
+
+    expectRejected(controller, () => controller.actions.activate({ blockId: 'ghost' }), 'unknown-block')
+    expectRejected(controller, () => controller.actions.resize({ blockId: 'ghost' }, px(300)), 'unknown-block')
+  })
+
+  it('A3 activate and resize are rejected as no-such-tab for a registered block that is not in the layout', async () => {
+    const { controller } = await setup(
+      [meta('a'), meta('b'), meta('m', { multiInstance: true })],
+      [presetOf('p', 0, row([pane(0, ['a']), pane(0, ['m', 'x'])], [px(260), FR]))],
+    )
+
+    expectRejected(controller, () => controller.actions.activate({ blockId: 'b' }), 'no-such-tab')
+    expectRejected(controller, () => controller.actions.resize({ blockId: 'b' }, px(300)), 'no-such-tab')
+    expectRejected(controller, () => controller.actions.activate({ blockId: 'm', contentId: 'nope' }), 'no-such-tab')
+    expectRejected(
+      controller,
+      () => controller.actions.resize({ blockId: 'm', contentId: 'nope' }, px(300)),
+      'no-such-tab',
+    )
+  })
+
+  it('A3 resize of a tab in the root pane, with no split above it, is rejected as not-in-split', async () => {
+    const { controller } = await setup([meta('a')], [presetOf('p', 0, pane(0, ['a']))])
+
+    expectRejected(controller, () => controller.actions.resize({ blockId: 'a' }, px(300)), 'not-in-split')
+  })
+
+  it('A3 activate returns ok for an inactive tab and for the tab that is already active', async () => {
+    const { controller } = await setup([meta('a'), meta('b')], [presetOf('p', 0, pane(1, ['a'], ['b']))])
+
+    expect(controller.actions.activate({ blockId: 'b' })).toEqual(OK)
+    expect(activeOf(controller.getSnapshot())).toBe(1)
+    expect(controller.actions.activate({ blockId: 'a' })).toEqual(OK)
+    expect(activeOf(controller.getSnapshot())).toBe(0)
+  })
+
+  it('A3 activate and resize return ok for a single-instance block given a stray contentId, and resize applies', async () => {
+    const { controller } = await setup(
+      [meta('a'), meta('b')],
+      [presetOf('p', 0, row([pane(0, ['a']), pane(0, ['b'])], [px(260), FR]))],
+    )
+
+    expect(controller.actions.activate({ blockId: 'a', contentId: 'x' })).toEqual(OK)
+    expect(controller.actions.resize({ blockId: 'a', contentId: 'x' }, px(320))).toEqual(OK)
+    expect(sizesOf(controller.getSnapshot())[0]).toEqual(px(320))
+  })
+
+  it('A3 resetToPreset returns ok, with or without a preset registered', async () => {
+    const empty = await setup()
+    expect(empty.controller.actions.resetToPreset()).toEqual(OK)
+
+    const { controller } = await setup([meta('a')], [presetOf('p', 0, pane(0, ['a']))])
+    controller.actions.close({ blockId: 'a' })
+    expect(controller.actions.resetToPreset()).toEqual(OK)
   })
 })
 

@@ -5,6 +5,7 @@ import type {
   BlockLayoutActions,
   BlockMeta,
   BlockTarget,
+  LayoutActionResult,
   LayoutNode,
   LocalizedText,
   LayoutSize,
@@ -215,7 +216,10 @@ describe('DockView', () => {
       const [layout, setLayout] = useState(layoutOf(pane(0, ['a'], ['b'])))
       const actions: BlockLayoutActions = {
         ...makeActions(),
-        activate: (target) => setLayout((current) => activateBlock(current, target)),
+        activate: (target) => {
+          setLayout((current) => activateBlock(current, target))
+          return { ok: true }
+        },
       }
       return (
         <DockView
@@ -492,23 +496,58 @@ describe('DockView block layout actions', () => {
     expect(actions.resetToPreset).toHaveBeenCalledTimes(1)
   })
 
+  it('A4 calling a method of the block layout returns what the same-named method of props.actions returned', () => {
+    const results = {
+      open: { ok: false, reason: 'unknown-block' },
+      close: { ok: false, reason: 'not-closable' },
+      activate: { ok: false, reason: 'no-such-tab' },
+      resize: { ok: false, reason: 'not-in-split' },
+      resetToPreset: { ok: true },
+    } as const satisfies Record<keyof BlockLayoutActions, LayoutActionResult>
+    const actions = {
+      open: vi.fn(() => results.open),
+      close: vi.fn(() => results.close),
+      activate: vi.fn(() => results.activate),
+      resize: vi.fn(() => results.resize),
+      resetToPreset: vi.fn(() => results.resetToPreset),
+      resizeSplit: vi.fn(),
+      beginResize: vi.fn(),
+      endResize: vi.fn(),
+    }
+    const { renderBlock } = renderDock(layoutOf(pane(0, ['a'])), [registration('a')], { actions })
+    const layout = renderBlock.mock.calls[0]?.[1].layout
+    if (layout === undefined) throw new Error('renderBlock was not called')
+    const target = { blockId: 'a' }
+
+    expect(layout.open(target)).toBe(results.open)
+    expect(layout.close(target)).toBe(results.close)
+    expect(layout.activate(target)).toBe(results.activate)
+    expect(layout.resize(target, { fr: 2 })).toBe(results.resize)
+    expect(layout.resetToPreset()).toBe(results.resetToPreset)
+  })
+
   it('A1 this-bound methods of a class instance work through props.layout, each called with the instance as this and the original arguments', () => {
     class ThisActions implements BlockLayoutActions {
       calls: unknown[][] = []
-      open(target: BlockTarget): void {
+      open(target: BlockTarget): LayoutActionResult {
         this.calls.push(['open', this, target])
+        return { ok: true }
       }
-      close(target: BlockTarget): void {
+      close(target: BlockTarget): LayoutActionResult {
         this.calls.push(['close', this, target])
+        return { ok: true }
       }
-      activate(target: BlockTarget): void {
+      activate(target: BlockTarget): LayoutActionResult {
         this.calls.push(['activate', this, target])
+        return { ok: true }
       }
-      resize(target: BlockTarget, size: LayoutSize): void {
+      resize(target: BlockTarget, size: LayoutSize): LayoutActionResult {
         this.calls.push(['resize', this, target, size])
+        return { ok: true }
       }
-      resetToPreset(): void {
+      resetToPreset(): LayoutActionResult {
         this.calls.push(['resetToPreset', this])
+        return { ok: true }
       }
       resizeSplit(): void {}
       beginResize(): void {}
@@ -539,20 +578,25 @@ describe('DockView block layout actions', () => {
   it('A5 this-bound method shorthands of an object literal work through props.layout, each called with that object as this and the original arguments', () => {
     const actions: DockViewProps['actions'] & { calls: unknown[][] } = {
       calls: [],
-      open(target: BlockTarget): void {
+      open(target: BlockTarget): LayoutActionResult {
         this.calls.push(['open', this, target])
+        return { ok: true }
       },
-      close(target: BlockTarget): void {
+      close(target: BlockTarget): LayoutActionResult {
         this.calls.push(['close', this, target])
+        return { ok: true }
       },
-      activate(target: BlockTarget): void {
+      activate(target: BlockTarget): LayoutActionResult {
         this.calls.push(['activate', this, target])
+        return { ok: true }
       },
-      resize(target: BlockTarget, size: LayoutSize): void {
+      resize(target: BlockTarget, size: LayoutSize): LayoutActionResult {
         this.calls.push(['resize', this, target, size])
+        return { ok: true }
       },
-      resetToPreset(): void {
+      resetToPreset(): LayoutActionResult {
         this.calls.push(['resetToPreset', this])
+        return { ok: true }
       },
       resizeSplit(): void {},
       beginResize(): void {},
