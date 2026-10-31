@@ -158,13 +158,24 @@ describe('block failures through the root seat', () => {
     await root.plugin(featureNamed('shell'))
     await root.plugin(featureNamed('layout'))
     const captured: Context[] = []
-    await root.plugin({ name: 'alpha', inject: ['webuiLayout'], apply: (ctx: Context) => void captured.push(ctx) })
-    const meta = { id: 'X', scope: 'root', priority: 0, title: { zh: 'X', en: 'X' }, closable: true } as const
-    captured[0]?.webuiLayout.registerBlock({ ...meta, multiInstance: false }, () => null)
+    const fiber = await root.plugin({
+      name: 'alpha',
+      inject: ['webuiLayout'],
+      apply: (ctx: Context) => void captured.push(ctx),
+    })
+    const alpha = captured[0]
+    if (alpha === undefined) throw new Error('the contributor plugin did not start')
+    const dispose = registerBlock(alpha, 'X')
     const slots: FakeSlots = fake.slots
     const inject = slots.entries('root')[0]?.options.inject
     if (typeof inject !== 'function') throw new Error('the root registration has no inject factory')
-    return { fake, face: inject() as Face }
+    return { fake, face: inject() as Face, root, alpha, fiber, dispose }
+  }
+
+  /** Register a root-scope block through a contributor's `webuiLayout`. */
+  function registerBlock(ctx: Context, id: string): () => void {
+    const meta = { id, scope: 'root', priority: 0, title: { zh: id, en: id }, closable: true } as const
+    return ctx.webuiLayout.registerBlock({ ...meta, multiInstance: false }, () => null)
   }
 
   it('A1 a failure reported for a block entry shows in the errors the root seat injects', async () => {
@@ -196,6 +207,46 @@ describe('block failures through the root seat', () => {
     expect(entries[0]).not.toBe(original)
     expect(entries[0]?.options.id).toBe('X')
     expect(face.hooks.errors.getSnapshot().size).toBe(0)
+  })
+
+  it('A3 retryBlock clears only the retried block while another registered block stays failed', async () => {
+    const { fake, face, alpha } = await loaded()
+    registerBlock(alpha, 'Y')
+    fake.slots.reportEntryError(ROOT_KEY, { options: { id: 'X' } }, new Error('x'), { abdicated: true })
+    fake.slots.reportEntryError(ROOT_KEY, { options: { id: 'Y' } }, new Error('y'), { abdicated: true })
+    expect(face.hooks.errors.getSnapshot().has('Y')).toBe(true)
+
+    face.retryBlock('X')
+
+    expect(face.hooks.errors.getSnapshot().has('X')).toBe(false)
+    expect(face.hooks.errors.getSnapshot().has('Y')).toBe(true)
+  })
+
+  it('A2 a failure is dropped when the block is unregistered by its disposer, and stays gone after it registers again', async () => {
+    const { fake, face, alpha, dispose } = await loaded()
+    fake.slots.reportEntryError(ROOT_KEY, { options: { id: 'X' } }, new Error('boom'), { abdicated: true })
+    expect(face.hooks.errors.getSnapshot().has('X')).toBe(true)
+
+    dispose()
+    expect(face.hooks.errors.getSnapshot().has('X')).toBe(false)
+
+    registerBlock(alpha, 'X')
+    expect(face.hooks.errors.getSnapshot().has('X')).toBe(false)
+  })
+
+  it('A2 a failure is dropped when the contributor plugin unloads, and stays gone after a new contributor registers the id', async () => {
+    const { fake, face, root, fiber } = await loaded()
+    fake.slots.reportEntryError(ROOT_KEY, { options: { id: 'X' } }, new Error('boom'), { abdicated: true })
+    expect(face.hooks.errors.getSnapshot().has('X')).toBe(true)
+
+    await fiber.dispose()
+    expect(face.hooks.errors.getSnapshot().has('X')).toBe(false)
+
+    const captured: Context[] = []
+    await root.plugin({ name: 'beta', inject: ['webuiLayout'], apply: (ctx: Context) => void captured.push(ctx) })
+    if (captured[0] === undefined) throw new Error('the second contributor did not start')
+    registerBlock(captured[0], 'X')
+    expect(face.hooks.errors.getSnapshot().has('X')).toBe(false)
   })
 
   it('A3 retryBlock of an id that was not registered through webuiLayout keeps the failure', async () => {

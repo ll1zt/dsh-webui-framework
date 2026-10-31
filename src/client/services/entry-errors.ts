@@ -71,6 +71,17 @@ export class EntryErrorTracker {
     this.#replace(next)
   }
 
+  /**
+   * Forget the failures of blocks that left the registry. Notifies once when something was dropped, not at all otherwise.
+   * @param blockIds - ids of the blocks still registered.
+   */
+  retain(blockIds: ReadonlySet<string>): void {
+    const next = new Map(this.#failures)
+    for (const blockId of next.keys()) if (!blockIds.has(blockId)) next.delete(blockId)
+    if (next.size === this.#failures.size) return
+    this.#replace(next)
+  }
+
   #replace(next: ReadonlyMap<string, BlockFailure>): void {
     this.#failures = next
     for (const listener of [...this.#listeners]) listener()

@@ -24,6 +24,10 @@ function apply(ctx: Context): void {
     () => ctx.slots.onEntryError((key, registration, error, info) => errors.record(key, registration, error, info)),
     'webui: entry errors',
   )
+  ctx.effect(
+    () => registry.subscribe(() => errors.retain(new Set(registry.blocks().map((block) => block.meta.id)))),
+    'webui: forget unregistered failures',
+  )
   // Registered outside an effect callback: the root seat declares the two block lists the moment this feature
   // applies, so no contributor holding `webuiLayout` can register a block ahead of the children table.
   const unregister = ctx.slots.register(
