@@ -45,10 +45,18 @@ export interface FakeSlots {
    * keep registering into bare keys.
    */
   refuseUndeclared: boolean
-  /** Mirrors the host's declaration ledger: 0 before the first declaration, positive afterwards. */
-  declarationEpoch(key: string): number
-  /** Declaration listeners of a key, fired synchronously on every declaration; the disposer unsubscribes. */
-  subscribeDeclaration(key: string, callback: () => void): () => void
+  /** The declared spec of a key, `undefined` while no entry's `children` table (or `declare`) has declared it. */
+  spec(key: string): unknown
+  /**
+   * Listeners of a key, notified once per microtask-batched flush after the key gains or loses an entry or is declared,
+   * the way the host's `ctx.slots.subscribe` does; the disposer unsubscribes.
+   */
+  subscribe(key: string, callback: () => void): () => void
+  /**
+   * Test switch: add the slot core's synchronous `declarationEpoch` / `subscribeDeclaration` pair, which the host's
+   * `ctx.slots` does not expose, so a test can check that the epoch pair is preferred when it exists.
+   */
+  enableDeclarationEpoch(): void
   /** Test trigger: declare a key the way a parent entry's `children` table does. */
   declare(key: string): void
   /** Test trigger: call every `onEntryError` listener the way the host reports a failed entry. */
@@ -109,15 +117,40 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
   const injected: { key: string; callback: () => unknown }[] = []
   const providedRoots: unknown[] = []
   const entryErrorListeners: EntryErrorListener[] = []
+  const specs = new Map<string, unknown>()
   const declarationEpochs = new Map<string, number>()
   const declarationListeners = new Map<string, Set<() => void>>()
+  const subscribers = new Map<string, Set<() => void>>()
+  const dirtyKeys = new Set<string>()
   const listeners = new Map<string, Set<(...args: unknown[]) => void>>()
   const activePlugins: string[] = []
   let refuseUndeclared = false
 
-  const declare = (key: string): void => {
+  // One flush per tick however many mutations touched a key, like the host's markDirty/flush.
+  const markDirty = (key: string): void => {
+    if (dirtyKeys.size === 0) {
+      queueMicrotask(() => {
+        const keys = [...dirtyKeys]
+        dirtyKeys.clear()
+        for (const dirty of keys) for (const listener of [...(subscribers.get(dirty) ?? [])]) listener()
+      })
+    }
+    dirtyKeys.add(key)
+  }
+
+  const declareKey = (key: string, spec: unknown): void => {
+    specs.set(key, spec)
     declarationEpochs.set(key, (declarationEpochs.get(key) ?? 0) + 1)
+    markDirty(key)
+  }
+
+  const notifyDeclaration = (key: string): void => {
     for (const listener of [...(declarationListeners.get(key) ?? [])]) listener()
+  }
+
+  const declare = (key: string): void => {
+    declareKey(key, { kind: 'list' })
+    notifyDeclaration(key)
   }
 
   const track = (dispose: () => void): (() => void) => {
@@ -134,7 +167,7 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
   const slots: FakeSlots = {
     register(options, component) {
       const name = String(options.name)
-      if (refuseUndeclared && (declarationEpochs.get(name) ?? 0) === 0) {
+      if (refuseUndeclared && !specs.has(name)) {
         throw new Error(`slot "${name}" is not declared (a parent entry's children table must declare it)`)
       }
       const registration: FakeSlotRegistration = { options: { name }, component }
@@ -159,15 +192,19 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
       registrations.push(registration)
       // The host publishes the entry first and its children table last, committing every sibling declaration
       // before the first notification (ref/deepseek-harness/packages/client/ui-slots/src/index.ts:1245-1310).
-      const childKeys =
-        children === undefined || children === null || typeof children !== 'object' ? [] : Object.keys(children)
-      for (const childKey of childKeys) declarationEpochs.set(childKey, (declarationEpochs.get(childKey) ?? 0) + 1)
-      for (const childKey of childKeys) {
-        for (const listener of [...(declarationListeners.get(childKey) ?? [])]) listener()
-      }
+      const childTable =
+        children === undefined || children === null || typeof children !== 'object'
+          ? {}
+          : (children as Record<string, unknown>)
+      const childKeys = Object.keys(childTable)
+      for (const childKey of childKeys) declareKey(childKey, childTable[childKey])
+      markDirty(name)
+      for (const childKey of childKeys) notifyDeclaration(childKey)
       return track(() => {
         const index = registrations.indexOf(registration)
-        if (index >= 0) registrations.splice(index, 1)
+        if (index < 0) return
+        registrations.splice(index, 1)
+        markDirty(name)
       })
     },
     get refuseUndeclared() {
@@ -176,15 +213,28 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
     set refuseUndeclared(value: boolean) {
       refuseUndeclared = value
     },
-    declarationEpoch(key) {
-      return declarationEpochs.get(key) ?? 0
+    spec(key) {
+      return specs.get(key)
     },
-    subscribeDeclaration(key, callback) {
-      const set = declarationListeners.get(key) ?? new Set<() => void>()
-      declarationListeners.set(key, set)
+    subscribe(key, callback) {
+      const set = subscribers.get(key) ?? new Set<() => void>()
+      subscribers.set(key, set)
       set.add(callback)
       return track(() => {
         set.delete(callback)
+      })
+    },
+    enableDeclarationEpoch() {
+      Object.assign(slots, {
+        declarationEpoch: (key: string): number => declarationEpochs.get(key) ?? 0,
+        subscribeDeclaration: (key: string, callback: () => void): (() => void) => {
+          const set = declarationListeners.get(key) ?? new Set<() => void>()
+          declarationListeners.set(key, set)
+          set.add(callback)
+          return track(() => {
+            set.delete(callback)
+          })
+        },
       })
     },
     declare,
@@ -269,8 +319,11 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
     injected.length = 0
     providedRoots.length = 0
     entryErrorListeners.length = 0
+    specs.clear()
     declarationEpochs.clear()
     declarationListeners.clear()
+    subscribers.clear()
+    dirtyKeys.clear()
     refuseUndeclared = false
     listeners.clear()
     activePlugins.length = 0

@@ -50,6 +50,9 @@ function ids(entries: readonly { options: { id?: string } }[]): (string | undefi
   return entries.map((entry) => entry.options.id)
 }
 
+/** One microtask: the host (and so the fake) notifies `slots.subscribe` listeners in a batched microtask flush. */
+const microtask = (): Promise<void> => Promise.resolve()
+
 afterEach(() => {
   vi.restoreAllMocks()
 })
@@ -166,6 +169,7 @@ describe('BlockRegistry before the slot is declared', () => {
     expect(warn).not.toHaveBeenCalled()
 
     fake.slots.declare(ROOT_KEY)
+    await microtask()
 
     expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['late'])
     expect(fake.slots.entries(ROOT_KEY)[0]?.component).toBe(Component)
@@ -175,6 +179,7 @@ describe('BlockRegistry before the slot is declared', () => {
 
     // A second declaration notification must not mount the block a second time.
     fake.slots.declare(ROOT_KEY)
+    await microtask()
     expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['late'])
     expect(registry.blocks().map((block) => block.meta.id)).toEqual(['late'])
 
@@ -197,6 +202,7 @@ describe('BlockRegistry before the slot is declared', () => {
     await beta.unload()
 
     fake.slots.declare(ROOT_KEY)
+    await microtask()
 
     expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
     expect(registry.blocks()).toHaveLength(0)
@@ -214,11 +220,125 @@ describe('BlockRegistry before the slot is declared', () => {
     })
 
     fake.slots.declare(ROOT_KEY)
+    await microtask()
 
     expect(registry.blocks()).toHaveLength(0)
     expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
     expect(warn).toHaveBeenCalledTimes(1)
     expect(String(warn.mock.calls[0]?.[0]).startsWith(LOG_PREFIX)).toBe(true)
+  })
+
+  it('A1 the host-faithful fake has only spec and subscribe, and a block waits for the microtask-batched declaration', async () => {
+    const { fake, join } = setup([])
+    fake.slots.refuseUndeclared = true
+    expect('declarationEpoch' in fake.slots).toBe(false)
+    expect('subscribeDeclaration' in fake.slots).toBe(false)
+    const registry = new BlockRegistry()
+    const alpha = await join('alpha')
+
+    const dispose = registry.registerBlock(alpha.ctx, meta('late', 1, 'root'), Component)
+    expect(registry.blocks()).toHaveLength(0)
+    expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
+
+    fake.slots.declare(ROOT_KEY)
+    expect(registry.blocks()).toHaveLength(0)
+    await microtask()
+    expect(registry.blocks().map((block) => block.meta.id)).toEqual(['late'])
+    expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['late'])
+
+    dispose()
+    expect(registry.blocks()).toHaveLength(0)
+    expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
+  })
+
+  it('A1 a host that exposes the epoch pair is waited on through it, mounting synchronously on declaration', async () => {
+    const { fake, join } = setup([])
+    fake.slots.enableDeclarationEpoch()
+    fake.slots.refuseUndeclared = true
+    const registry = new BlockRegistry()
+    const alpha = await join('alpha')
+
+    registry.registerBlock(alpha.ctx, meta('late', 1, 'root'), Component)
+    expect(registry.blocks()).toHaveLength(0)
+
+    fake.slots.declare(ROOT_KEY)
+    expect(registry.blocks().map((block) => block.meta.id)).toEqual(['late'])
+    expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['late'])
+  })
+
+  it('A2 a block whose mount keeps failing after the declaration is tried and warned about once, however often the key changes', async () => {
+    const { fake, join } = setup([])
+    fake.slots.refuseUndeclared = true
+    const registry = new BlockRegistry()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const alpha = await join('alpha')
+    registry.registerBlock(alpha.ctx, meta('broken', 1, 'root'), Component)
+    const register = fake.slots.register.bind(fake.slots)
+    const attempts: (string | undefined)[] = []
+    vi.spyOn(fake.slots, 'register').mockImplementation((options, component) => {
+      attempts.push(options.id as string | undefined)
+      if (options.id === 'broken') throw new Error('slot "webui.block.root" refused the entry')
+      return register(options, component)
+    })
+
+    fake.slots.declare(ROOT_KEY)
+    await microtask()
+    for (const id of ['other-1', 'other-2', 'other-3']) {
+      registry.registerBlock(alpha.ctx, meta(id, 2, 'root'), OTHER)
+      await microtask()
+    }
+
+    expect(attempts.filter((id) => id === 'broken')).toHaveLength(1)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(String(warn.mock.calls[0]?.[0]).startsWith(LOG_PREFIX)).toBe(true)
+    expect(registry.blocks().map((block) => block.meta.id)).toEqual(['other-1', 'other-2', 'other-3'])
+    expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['other-1', 'other-2', 'other-3'])
+  })
+
+  it('A3 of two same-id blocks waiting for the declaration the later one is rejected at once and only the first mounts', async () => {
+    const { fake, join } = setup([])
+    fake.slots.refuseUndeclared = true
+    const registry = new BlockRegistry()
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const alpha = await join('alpha')
+    const beta = await join('beta')
+
+    registry.registerBlock(alpha.ctx, meta('dup', 1, 'root'), Component)
+    const disposeSecond = registry.registerBlock(beta.ctx, meta('dup', 1, 'root'), OTHER)
+
+    expect(registry.diagnostics()).toEqual([{ kind: 'duplicate-block', id: 'dup', kept: 'alpha', rejected: 'beta' }])
+    disposeSecond()
+
+    fake.slots.declare(ROOT_KEY)
+    await microtask()
+
+    expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['dup'])
+    expect(fake.slots.entries(ROOT_KEY)[0]?.component).toBe(Component)
+    expect(registry.blocks().map((block) => block.meta.id)).toEqual(['dup'])
+    expect(registry.blocks()[0]?.owner).toBe('alpha')
+    expect(registry.diagnostics()).toHaveLength(1)
+  })
+
+  it('A4 once the first waiting block is disposed the id can be registered again and mounts after the declaration', async () => {
+    const { fake, join } = setup([])
+    fake.slots.refuseUndeclared = true
+    const registry = new BlockRegistry()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const alpha = await join('alpha')
+    const beta = await join('beta')
+
+    const disposeFirst = registry.registerBlock(alpha.ctx, meta('dup', 1, 'root'), Component)
+    disposeFirst()
+    registry.registerBlock(beta.ctx, meta('dup', 1, 'root'), OTHER)
+
+    fake.slots.declare(ROOT_KEY)
+    await microtask()
+
+    expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['dup'])
+    expect(fake.slots.entries(ROOT_KEY)[0]?.component).toBe(OTHER)
+    expect(registry.blocks().map((block) => block.owner)).toEqual(['beta'])
+    expect(registry.diagnostics()).toHaveLength(0)
+    expect(warn).not.toHaveBeenCalled()
   })
 
   it('A2 a block whose slot is declared up front enters it at once, and the two block keys stay independent', async () => {
