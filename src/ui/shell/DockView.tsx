@@ -28,6 +28,11 @@ export interface DockViewProps {
   failures?: ReadonlyMap<string, BlockFailure>
   /** Retry a failed block; without it the error card has no retry button. */
   onRetry?: (blockId: string) => void
+  /**
+   * Host binding of a `session`-scope block's body, e.g. a session area that falls back to an empty
+   * body. Only that body is wrapped: the tab strip, the error card and `root` blocks stay outside.
+   */
+  wrapSession?: (children: ReactNode) => ReactNode
 }
 
 type DockContext = Omit<DockViewProps, 'snapshot'> & { metas: ReadonlyMap<string, BlockMeta> }
@@ -44,7 +49,7 @@ function titleOf(meta: BlockMeta, language: string): string {
 }
 
 function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNode {
-  const { actions, renderBlock, t, language, metas, failures, onRetry } = dock
+  const { actions, renderBlock, t, language, metas, failures, onRetry, wrapSession } = dock
   // Tabs keep their index in the layout, so `active` still lines up when an unregistered block is skipped.
   const tabs = pane.tabs.flatMap((ref, index) => {
     const meta = metas.get(ref.blockId)
@@ -53,7 +58,8 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
   const contentOf = (ref: LayoutPane['tabs'][number], meta: BlockMeta, active: boolean): ReactNode => {
     const failure = failures?.get(ref.blockId)
     if (failure === undefined) {
-      return renderBlock(meta, { blockId: ref.blockId, contentId: ref.contentId, active, layout: actions })
+      const body = renderBlock(meta, { blockId: ref.blockId, contentId: ref.contentId, active, layout: actions })
+      return meta.scope === 'session' && wrapSession !== undefined ? wrapSession(body) : body
     }
     return (
       <BlockErrorCard
