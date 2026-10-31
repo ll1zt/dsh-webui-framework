@@ -105,17 +105,24 @@ describe('App', () => {
 
     expect(renderSlot).toHaveBeenCalledWith(
       ROOT_KEY,
-      { blockId: 'r1', contentId: '', active: true, layout: dockActions },
+      { blockId: 'r1', contentId: '', active: true, layout: expect.any(Object) },
       expect.objectContaining({ only: 'r1' }),
     )
     expect(renderSlot).toHaveBeenCalledWith(
       SESSION_KEY,
-      { blockId: 's1', contentId: '', active: false, layout: dockActions },
+      { blockId: 's1', contentId: '', active: false, layout: expect.any(Object) },
       expect.objectContaining({ only: 's1' }),
     )
     for (const [, owner] of renderSlot.mock.calls) expect(owner).not.toHaveProperty('ctx')
     expect(screen.getByTestId('slot-r1')).not.toBeNull()
     expect(screen.getByTestId('slot-s1')).not.toBeNull()
+
+    const layout = renderSlot.mock.calls[0]?.[1].layout
+    if (layout === undefined) throw new Error('renderSlot was not called')
+    expect(Object.keys(layout).sort()).toEqual(['activate', 'close', 'open', 'resetToPreset', 'resize'])
+    const target = { blockId: 'r1', contentId: 'x' }
+    layout.open(target)
+    expect(dockActions.open).toHaveBeenCalledWith(target)
   })
 
   it('A1 without a main session the root block still renders and a null root still shows dock.empty', () => {
