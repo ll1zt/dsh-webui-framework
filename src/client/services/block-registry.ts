@@ -10,6 +10,7 @@ import type {
   WebuiLayoutService,
 } from '@lllzt/dsh-webui-framework/contract'
 import { WEBUI_SLOT_KEYS } from '../types.ts'
+import { LOG_PREFIX } from './log-prefix.ts'
 
 /** A rejected duplicate registration; `kept` and `rejected` are the plugin names of the two registrants. */
 export interface WebuiDiagnostic {
@@ -31,9 +32,6 @@ interface PresetRegistration {
   owner: string
 }
 
-// Assembled from the package label because scripts/source-guards.test.ts allows the bracketed literal only in ErrorBoundary.tsx.
-const LOG_LABEL = 'webui-framework'
-const LOG_PREFIX = `[${LOG_LABEL}]`
 const UNNAMED_OWNER = '(unnamed)'
 
 /**
@@ -84,6 +82,7 @@ function ownerName(owner: Context): string {
 export class BlockRegistry {
   readonly #blocks = new Map<string, BlockRegistration>()
   readonly #presets = new Map<string, PresetRegistration>()
+  readonly #remounts = new Map<string, () => void>()
   readonly #diagnostics: WebuiDiagnostic[] = []
   readonly #listeners = new Set<() => void>()
 
@@ -108,25 +107,47 @@ export class BlockRegistry {
     const remove = (): void => {
       if (this.#blocks.get(meta.id) !== registration) return
       this.#blocks.delete(meta.id)
+      this.#remounts.delete(meta.id)
       this.#notify()
     }
     const slotComponent = asFunctionComponent(component)
-    // owner.effect ties the slot entry and the metadata to the contributor's fiber, so unloading that plugin retracts both.
-    const stop = owner.effect(() => {
-      const unregister = owner.slots.register(
+    let unregister: (() => void) | undefined
+    const mount = (): void => {
+      unregister = owner.slots.register(
         { name: WEBUI_SLOT_KEYS[meta.scope], id: meta.id, priority: meta.priority, label: meta.title.en },
         slotComponent,
       )
+    }
+    // owner.effect ties the slot entry and the metadata to the contributor's fiber, so unloading that plugin retracts both.
+    const stop = owner.effect(() => {
+      mount()
       return () => {
-        unregister()
+        unregister?.()
+        unregister = undefined
         remove()
       }
     }, `webui: block ${meta.id}`)
+    this.#remounts.set(meta.id, () => {
+      unregister?.()
+      mount()
+    })
     this.#notify()
     return this.#once(() => {
       void stop()
       remove()
     })
+  }
+
+  /**
+   * Dispose the slot entry of a block and register it again through the same owner, so the host renders it afresh.
+   * @param blockId - id of a block registered through `registerBlock`.
+   * @returns whether the block was remounted; false for an id that did not come through `registerBlock`.
+   */
+  remount(blockId: string): boolean {
+    const remount = this.#remounts.get(blockId)
+    if (remount === undefined) return false
+    remount()
+    return true
   }
 
   /**

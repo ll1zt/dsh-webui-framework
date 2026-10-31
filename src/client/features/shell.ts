@@ -12,12 +12,16 @@ import type { WebuiFeature } from './index.ts'
 /**
  * Register the dictionaries, then take the `root` seat. No `priority`: the registration
  * keeps the shipped slot's fail-loud contract. The seat's inject face hands App the controller over the
- * page registry, so the dock draws what `webuiLayout` registers.
+ * page registry, so the dock draws what `webuiLayout` registers, and a failed block can be retried.
  * @param ctx - client root context.
  */
 function apply(ctx: Context): void {
-  const { controller } = dockOf(ctx)
+  const { registry, controller, errors } = dockOf(ctx)
   ctx.effect(() => ctx.locale.register('webui', { zh, en }), 'webui: dictionaries')
+  ctx.effect(
+    () => ctx.slots.onEntryError((key, registration, error, info) => errors.record(key, registration, error, info)),
+    'webui: entry errors',
+  )
   ctx.effect(
     () =>
       ctx.slots.register(
@@ -25,8 +29,11 @@ function apply(ctx: Context): void {
           name: 'root',
           locale: 'webui',
           inject: (): AppInject => ({
-            hooks: { dock: controller, locale: ctx.locale },
+            hooks: { dock: controller, locale: ctx.locale, errors },
             dockActions: controller.actions,
+            retryBlock: (blockId: string): void => {
+              if (registry.remount(blockId)) errors.clear(blockId)
+            },
           }),
           children: {
             [WEBUI_SLOT_KEYS.root]: { kind: 'list', scope: 'root' },

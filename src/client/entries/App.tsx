@@ -7,16 +7,22 @@ import type { BlockLayoutActions, BlockInstanceProps, BlockMeta } from '@lllzt/d
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { AppErrorBoundary } from '../../ui/shell/ErrorBoundary.tsx'
 import { DockView } from '../../ui/shell/DockView.tsx'
+import type { BlockFailure } from '../services/entry-errors.ts'
 import type { DockSnapshot } from '../services/layout-controller.ts'
 import { WEBUI_SLOT_KEYS } from '../types.ts'
 import '../../ui/shell/shell.css'
 
 type BlockSlotKey = (typeof WEBUI_SLOT_KEYS)[keyof typeof WEBUI_SLOT_KEYS]
 
-/** What the root registration's inject factory hands over: the dock and locale sources, and the layout actions. */
+/** What the root registration's inject factory hands over: the dock, locale and failure sources, the layout actions and the retry. */
 export interface AppInject {
-  hooks: { dock: ObservableSnapshot<DockSnapshot>; locale: ObservableSnapshot<LocaleSnapshot> }
+  hooks: {
+    dock: ObservableSnapshot<DockSnapshot>
+    locale: ObservableSnapshot<LocaleSnapshot>
+    errors: ObservableSnapshot<ReadonlyMap<string, BlockFailure>>
+  }
   dockActions: BlockLayoutActions
+  retryBlock: (blockId: string) => void
 }
 
 /** Props the `root` registration composes: runtime, the `webui` copy seat, the block lists and the injected dock. */
@@ -27,9 +33,19 @@ type AppProps = PropsRuntime<'root'> & PropsLocale<'webui'> & PropsRenderSlots<B
  * page's own render shows the error panel instead of a blank page. Every block is mounted through
  * the slot of its scope, inside one SessionProvider that follows the main session.
  */
-export function App({ t, useDock, useLocale, dockActions, renderSlot, SessionProvider }: AppProps): ReactNode {
+export function App({
+  t,
+  useDock,
+  useLocale,
+  useErrors,
+  dockActions,
+  retryBlock,
+  renderSlot,
+  SessionProvider,
+}: AppProps): ReactNode {
   const snapshot = useDock((current) => current)
   const language = useLocale((current) => current.active)
+  const failures = useErrors((current) => current)
   const renderBlock = (meta: BlockMeta, instance: BlockInstanceProps): ReactNode =>
     renderSlot(WEBUI_SLOT_KEYS[meta.scope], instance, {
       only: meta.id,
@@ -40,7 +56,15 @@ export function App({ t, useDock, useLocale, dockActions, renderSlot, SessionPro
     <AppErrorBoundary t={t}>
       <div className="webui-root">
         <SessionProvider>
-          <DockView snapshot={snapshot} actions={dockActions} renderBlock={renderBlock} t={t} language={language} />
+          <DockView
+            snapshot={snapshot}
+            actions={dockActions}
+            renderBlock={renderBlock}
+            t={t}
+            language={language}
+            failures={failures}
+            onRetry={retryBlock}
+          />
         </SessionProvider>
       </div>
     </AppErrorBoundary>

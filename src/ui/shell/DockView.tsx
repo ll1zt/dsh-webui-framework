@@ -9,8 +9,10 @@ import type {
   LayoutSize,
 } from '@lllzt/dsh-webui-framework/contract'
 import type { BlockRegistration } from '../../client/services/block-registry.ts'
+import type { BlockFailure } from '../../client/services/entry-errors.ts'
 import type { DockSnapshot } from '../../client/services/layout-controller.ts'
 import type { WebuiTranslate } from '../../client/types.ts'
+import { BlockErrorCard } from './ErrorBoundary.tsx'
 import './dock.css'
 
 export interface DockViewProps {
@@ -19,6 +21,10 @@ export interface DockViewProps {
   renderBlock: (meta: BlockMeta, instance: BlockInstanceProps) => ReactNode
   t: WebuiTranslate
   language: string
+  /** Blocks whose entry failed to render; their tab panel shows an error card instead of the block. */
+  failures?: ReadonlyMap<string, BlockFailure>
+  /** Retry a failed block; without it the error card has no retry button. */
+  onRetry?: (blockId: string) => void
 }
 
 type DockContext = Omit<DockViewProps, 'snapshot'> & { metas: ReadonlyMap<string, BlockMeta> }
@@ -35,12 +41,26 @@ function titleOf(meta: BlockMeta, language: string): string {
 }
 
 function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNode {
-  const { actions, renderBlock, t, language, metas } = dock
+  const { actions, renderBlock, t, language, metas, failures, onRetry } = dock
   // Tabs keep their index in the layout, so `active` still lines up when an unregistered block is skipped.
   const tabs = pane.tabs.flatMap((ref, index) => {
     const meta = metas.get(ref.blockId)
     return meta === undefined ? [] : [{ ref, meta, active: index === pane.active }]
   })
+  const contentOf = (ref: LayoutPane['tabs'][number], meta: BlockMeta, active: boolean): ReactNode => {
+    const failure = failures?.get(ref.blockId)
+    if (failure === undefined) {
+      return renderBlock(meta, { blockId: ref.blockId, contentId: ref.contentId, active, layout: actions })
+    }
+    return (
+      <BlockErrorCard
+        failure={failure}
+        title={titleOf(meta, language)}
+        {...(onRetry === undefined ? {} : { onRetry: () => onRetry(ref.blockId) })}
+        t={t}
+      />
+    )
+  }
   return (
     <div className="webui-dock-pane">
       <div className="webui-dock-tabs" role="tablist">
@@ -82,7 +102,7 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
             aria-label={titleOf(meta, language)}
             hidden={!active}
           >
-            {renderBlock(meta, { blockId: ref.blockId, contentId: ref.contentId, active, layout: actions })}
+            {contentOf(ref, meta, active)}
           </div>
         ))}
       </div>

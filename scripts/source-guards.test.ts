@@ -40,15 +40,27 @@ describe('src value imports of host packages', () => {
 })
 
 describe('log prefix single exit', () => {
-  it('A3 the [webui-framework] literal appears only in the error boundary, and [dsh-web-ui] nowhere', () => {
-    const allowed = 'src/ui/shell/ErrorBoundary.tsx'
+  const module = 'src/client/services/log-prefix.ts'
+  const text = (path: string): string => readFileSync(join(ROOT, path), 'utf8')
+
+  it('A6 the [webui-framework] literal is spelled only in the log-prefix module, and [dsh-web-ui] nowhere', () => {
     const offenders = files.filter(
-      (file) => file !== join(ROOT, allowed) && readFileSync(file, 'utf8').includes('[webui-framework]'),
+      (file) => file !== join(ROOT, module) && readFileSync(file, 'utf8').includes('[webui-framework]'),
     )
     expect(offenders).toEqual([])
-    expect(readFileSync(join(ROOT, allowed), 'utf8')).toContain('[webui-framework]')
+    expect(text(module)).toContain('[webui-framework]')
     // split so this file does not itself match the search
     const oldPrefix = '[dsh-' + 'web-ui]'
     expect(files.filter((file) => readFileSync(file, 'utf8').includes(oldPrefix))).toEqual([])
+  })
+
+  it('A6 the error boundary and the block registry import LOG_PREFIX from it and define no prefix of their own', () => {
+    for (const path of ['src/ui/shell/ErrorBoundary.tsx', 'src/client/services/block-registry.ts']) {
+      expect(text(path)).toMatch(/import\s*\{[^}]*\bLOG_PREFIX\b[^}]*\}\s*from\s*['"][^'"]*log-prefix\.ts['"]/)
+    }
+    const definers = files.filter(
+      (file) => file !== join(ROOT, module) && /\bLOG_(?:PREFIX|LABEL)\s*=/.test(readFileSync(file, 'utf8')),
+    )
+    expect(definers.map((file) => file.slice(ROOT.length + 1))).toEqual([])
   })
 })
