@@ -6,6 +6,43 @@ const SESSION_KEY = 'webui.block.session'
 const ABDICATED = { abdicated: true }
 
 describe('EntryErrorTracker', () => {
+  it('A1 retain drops the failures outside the set and notifies exactly once', () => {
+    const tracker = new EntryErrorTracker()
+    tracker.record(ROOT_KEY, { options: { id: 'X' } }, new Error('x'), ABDICATED)
+    tracker.record(ROOT_KEY, { options: { id: 'Y' } }, new Error('y'), ABDICATED)
+    const listener = vi.fn()
+    tracker.subscribe(listener)
+    const before = tracker.getSnapshot()
+
+    tracker.retain(new Set(['X']))
+
+    expect(tracker.failed('X')).toBeDefined()
+    expect(tracker.failed('Y')).toBeUndefined()
+    expect(listener).toHaveBeenCalledTimes(1)
+    expect(tracker.getSnapshot()).not.toBe(before)
+    expect(tracker.getSnapshot().size).toBe(1)
+  })
+
+  it('A1 retain with a set covering every failure, or on an empty tracker, does not notify and keeps the snapshot', () => {
+    const tracker = new EntryErrorTracker()
+    const listener = vi.fn()
+    tracker.subscribe(listener)
+    const empty = tracker.getSnapshot()
+    tracker.retain(new Set())
+    expect(listener).not.toHaveBeenCalled()
+    expect(tracker.getSnapshot()).toBe(empty)
+
+    tracker.record(ROOT_KEY, { options: { id: 'X' } }, new Error('x'), ABDICATED)
+    listener.mockClear()
+    const before = tracker.getSnapshot()
+
+    tracker.retain(new Set(['X', 'extra']))
+
+    expect(listener).not.toHaveBeenCalled()
+    expect(tracker.getSnapshot()).toBe(before)
+    expect(tracker.failed('X')).toBeDefined()
+  })
+
   it('A1 records an abdicated block entry under its registration id and notifies subscribers', () => {
     const tracker = new EntryErrorTracker()
     const listener = vi.fn()
