@@ -1,0 +1,32 @@
+# A host assembly table in miniature: overrides, rows, nested rows, repeats.
+- id: system-prompt
+  config:
+    id: config-only-id
+    personaPrefix: hello
+
+- insert:
+    - id: alpha
+      name: pkg-alpha
+      disabled: !!js "ctx.get('profileContext')?.name !== 'desktop'"
+      config:
+        enabled: true
+    - id: beta
+      name: pkg-beta
+      insert:
+        - id: gamma
+          name: pkg-gamma
+          insert:
+            - id: delta
+              name: pkg-delta
+        - id: alpha
+          name: pkg-alpha
+    - name: pkg-without-id
+
+- id: tool-bash
+  disabled: true
+
+- insert:
+    - id: epsilon
+      name: pkg-epsilon
+    - id: gamma
+      name: pkg-gamma
