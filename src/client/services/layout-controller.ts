@@ -4,6 +4,7 @@ import type {
   BlockMeta,
   BlockRef,
   BlockTarget,
+  CloseGuard,
   LayoutActionRejection,
   LayoutActionResult,
   LayoutNode,
@@ -14,6 +15,7 @@ import type {
 import { chooseLayout, clampSize, nodeAt, replaceAt, resolveLayout, type LayoutCatalog } from '../../lib/layout.ts'
 import { activateBlock, closeBlock, openBlock, resizeBlock, tabPathOf } from '../../lib/layout-ops.ts'
 import type { BlockRegistration, BlockRegistry } from './block-registry.ts'
+import { LOG_PREFIX } from './log-prefix.ts'
 
 /** The key of a tab in `DockSnapshot.titles`. */
 export function tabKey(ref: BlockRef): string {
@@ -41,6 +43,12 @@ export interface DockActions extends BlockLayoutActions {
    * and when the title is unchanged. Not a user action: `onAction` listeners hear nothing and nothing is saved.
    */
   setTabTitle(ref: BlockRef, title: LocalizedText | null): void
+  /**
+   * Sets the guard of the tab `ref` (replacing any earlier one), or removes it with `null`. Ignored when `ref` is no tab
+   * in the layout. Only `close` and `resetToPreset` ask it; it is dropped with the tab. Not a user action: nothing is
+   * published, `onAction` listeners hear nothing and nothing is saved.
+   */
+  setCloseGuard(ref: BlockRef, guard: CloseGuard | null): void
 }
 
 /** Every tab key in the layout. */
@@ -77,6 +85,8 @@ export class LayoutController {
   #following = true
   /** The layout `onAction` listeners last heard during the open resize gesture (the one at its start until an action notifies); null outside a gesture. */
   #gesture: WebuiLayout | null = null
+  /** Close guards by `tabKey`; only tabs in the layout have one. */
+  #guards = new Map<string, CloseGuard>()
 
   readonly actions: DockActions = {
     open: (target) =>
@@ -90,7 +100,8 @@ export class LayoutController {
           const meta = catalog.blocks.get(target.blockId)
           if (meta === undefined) return 'unknown-block'
           if (meta.closable === false) return 'not-closable'
-          return tabPathOf(layout, target, catalog) === undefined ? 'no-such-tab' : undefined
+          if (tabPathOf(layout, target, catalog) === undefined) return 'no-such-tab'
+          return this.#allows(this.#guardKey(target, catalog)) ? undefined : 'vetoed'
         },
         (layout, catalog) => closeBlock(layout, target, catalog),
       ),
@@ -114,7 +125,11 @@ export class LayoutController {
       ),
     resetToPreset: () =>
       this.#act(
-        () => undefined,
+        (layout, catalog) => {
+          const kept = tabKeysOf(this.#adopt(undefined, catalog).root)
+          for (const key of tabKeysOf(layout.root)) if (!kept.has(key) && !this.#allows(key)) return 'vetoed'
+          return undefined
+        },
         (_layout, catalog) => this.#adopt(undefined, catalog),
       ),
     resizeSplit: (path, sizes) => this.#update((layout) => resizeSplitAt(layout, path, sizes), true),
@@ -141,6 +156,12 @@ export class LayoutController {
       if (title === null) next.delete(key)
       else next.set(key, { ...title })
       this.#publish({ layout, blocks, titles: next })
+    },
+    setCloseGuard: (ref, guard) => {
+      const { blocks, layout } = this.#snapshot
+      const key = this.#guardKey(ref, this.#catalogOf(blocks))
+      if (guard === null) this.#guards.delete(key)
+      else if (tabKeysOf(layout.root).has(key)) this.#guards.set(key, guard)
     },
   }
 
@@ -224,6 +245,26 @@ export class LayoutController {
     return meta !== undefined && !meta.multiInstance ? { blockId: target.blockId, contentId: '' } : target
   }
 
+  /** The `tabKey` of the tab `target` names: a single-instance block has no contentId of its own. */
+  #guardKey(target: BlockTarget, catalog: LayoutCatalog): string {
+    const { blockId, contentId } = this.#singled(target, catalog)
+    return tabKey({ blockId, contentId: contentId ?? '' })
+  }
+
+  /** Whether the guard of tab `key` lets it close; a guard that throws vetoes, and warns. */
+  #allows(key: string): boolean {
+    const guard = this.#guards.get(key)
+    if (guard === undefined) return true
+    try {
+      return guard()
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} the close guard of block "${key.split('\u0000')[0]}" threw, so the close is vetoed: ${String(error)}`,
+      )
+      return false
+    }
+  }
+
   /** Judges the request against the current layout first: a rejection touches nothing, an accepted one is applied by `#update`. */
   #act(
     judge: (layout: WebuiLayout, catalog: LayoutCatalog) => LayoutActionRejection | undefined,
@@ -250,11 +291,12 @@ export class LayoutController {
     for (const listener of [...this.#actionListeners]) listener(layout)
   }
 
-  /** Publishes `snapshot`, dropping the titles of tabs that are no longer in its layout. */
+  /** Publishes `snapshot`, dropping the titles and close guards of tabs that are no longer in its layout. */
   #publish(snapshot: DockSnapshot): void {
     const keys = tabKeysOf(snapshot.layout.root)
     const kept = [...snapshot.titles].filter(([key]) => keys.has(key))
     this.#snapshot = kept.length === snapshot.titles.size ? snapshot : { ...snapshot, titles: new Map(kept) }
+    for (const key of [...this.#guards.keys()]) if (!keys.has(key)) this.#guards.delete(key)
     for (const listener of [...this.#listeners]) listener()
   }
 }
