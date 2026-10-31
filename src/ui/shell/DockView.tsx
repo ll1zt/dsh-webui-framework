@@ -110,7 +110,7 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
               <button
                 type="button"
                 className="webui-dock-tab-close"
-                aria-label={t('dock.tab.close')}
+                aria-label={t('dock.tab.close', { title: titleOf(meta, language) })}
                 onClick={() => actions.close(ref)}
               >
                 ×
