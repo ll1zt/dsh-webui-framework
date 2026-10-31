@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { isValidElement, useEffect, useState, type ReactNode } from 'react'
 import type {
   BlockLayoutActions,
   BlockMeta,
@@ -60,11 +60,13 @@ function renderDock(
     actions = makeActions(),
     failures,
     onRetry,
+    wrapSession,
   }: {
     language?: string
     actions?: BlockLayoutActions
     failures?: ReadonlyMap<string, BlockFailure>
     onRetry?: (blockId: string) => void
+    wrapSession?: DockViewProps['wrapSession']
   } = {},
 ) {
   const renderBlock = vi.fn<DockViewProps['renderBlock']>((meta, instance) => (
@@ -79,6 +81,7 @@ function renderDock(
       language={language}
       {...(failures === undefined ? {} : { failures })}
       {...(onRetry === undefined ? {} : { onRetry })}
+      {...(wrapSession === undefined ? {} : { wrapSession })}
     />,
   )
   return { renderBlock, actions }
@@ -233,6 +236,62 @@ describe('DockView', () => {
     expect(counterA.closest('[hidden]')).toBeNull()
     expect(screen.getByText('a:2')).not.toBeNull()
     expect(screen.getByTestId('counter-b').closest('[hidden]')).not.toBeNull()
+  })
+})
+
+describe('DockView session wrapping', () => {
+  const rootBlock = registration('r', { scope: 'root' })
+  const sessionBlock = registration('s', { scope: 'session' })
+  const rootMarker = markerOf(rootBlock.meta, '')
+  const sessionMarker = markerOf(sessionBlock.meta, '')
+
+  it('A1 a root-scope block still renders and dock.empty still shows when nothing has a main session', () => {
+    const wrapSession = vi.fn<NonNullable<DockViewProps['wrapSession']>>(() => <div>dock.session.empty</div>)
+    const { renderBlock } = renderDock(layoutOf(pane(0, ['r'])), [rootBlock], { wrapSession })
+
+    expect(renderBlock).toHaveBeenCalledTimes(1)
+    expect(renderBlock.mock.calls[0]?.[0].id).toBe('r')
+    expect(screen.getByTestId(rootMarker).textContent).toBe('r')
+    expect(wrapSession).not.toHaveBeenCalled()
+    cleanup()
+
+    renderDock(layoutOf(null), [rootBlock], { wrapSession })
+    expect(screen.getByText('dock.empty')).not.toBeNull()
+    expect(wrapSession).not.toHaveBeenCalled()
+  })
+
+  it('A2 only the session block goes through wrapSession and shows the session empty copy without a session', () => {
+    const layout = layoutOf(row([pane(0, ['r']), pane(0, ['s'])], [FR, FR]))
+    const blocks = [rootBlock, sessionBlock]
+    const wrapSession = vi.fn<NonNullable<DockViewProps['wrapSession']>>(() => <div>dock.session.empty</div>)
+    const { renderBlock } = renderDock(layout, blocks, { wrapSession })
+
+    expect(wrapSession).toHaveBeenCalledTimes(1)
+    const [content] = wrapSession.mock.calls[0] ?? []
+    expect(isValidElement<{ 'data-testid'?: string }>(content) ? content.props['data-testid'] : undefined).toBe(
+      sessionMarker,
+    )
+    expect(screen.getByText('dock.session.empty')).not.toBeNull()
+    expect(screen.queryByTestId(sessionMarker)).toBeNull()
+    expect(screen.getByTestId(rootMarker)).not.toBeNull()
+    expect(renderBlock.mock.calls.map(([meta]) => meta.id)).toEqual(['r', 's'])
+    cleanup()
+
+    const passThrough = vi.fn<NonNullable<DockViewProps['wrapSession']>>((children: ReactNode) => <>{children}</>)
+    renderDock(layout, blocks, { wrapSession: passThrough })
+
+    expect(passThrough).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId(sessionMarker)).not.toBeNull()
+    expect(screen.getByTestId(rootMarker)).not.toBeNull()
+  })
+
+  it('A3 the error card of a failed session block is never wrapped', () => {
+    const failures = new Map<string, BlockFailure>([['s', { blockId: 's', error: new Error('s exploded') }]])
+    const wrapSession = vi.fn<NonNullable<DockViewProps['wrapSession']>>((children: ReactNode) => <>{children}</>)
+    renderDock(layoutOf(pane(0, ['s'])), [sessionBlock], { failures, wrapSession, language: 'en' })
+
+    expect(screen.getByRole('alert').textContent).toContain('s exploded')
+    expect(wrapSession).not.toHaveBeenCalled()
   })
 })
 

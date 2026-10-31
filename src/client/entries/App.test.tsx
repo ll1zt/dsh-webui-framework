@@ -59,8 +59,9 @@ function renderApp(
   const renderSlot = vi.fn((key: string, _owner: BlockInstanceProps, opts: { only: string; fallback?: ReactNode }) =>
     key === SESSION_KEY && !hasSession ? (opts.fallback ?? null) : <div data-testid={`slot-${opts.only}`} />,
   )
+  // Mirrors the host: without a main session only `empty` renders, even when the caller passed none.
   const SessionProvider = vi.fn(({ children, empty }: SessionProviderProps) =>
-    hasSession || empty === undefined ? <>{children}</> : <>{empty()}</>,
+    hasSession ? <>{children}</> : <>{empty?.() ?? null}</>,
   )
   const retryBlock = vi.fn()
   const RootEntry = App as unknown as ComponentType<Record<string, unknown>>
@@ -114,6 +115,33 @@ describe('App', () => {
     )
     for (const [, owner] of renderSlot.mock.calls) expect(owner).not.toHaveProperty('ctx')
     expect(screen.getByTestId('slot-r1')).not.toBeNull()
+    expect(screen.getByTestId('slot-s1')).not.toBeNull()
+  })
+
+  it('A1 without a main session the root block still renders and a null root still shows dock.empty', () => {
+    renderApp(snapshotOf(pane('r1'), [registration('r1', 'root')]), { hasSession: false })
+
+    expect(screen.getByTestId('slot-r1')).not.toBeNull()
+    expect(document.querySelector('.webui-dock')).not.toBeNull()
+    cleanup()
+
+    renderApp(snapshotOf(null, []), { hasSession: false })
+
+    expect(screen.getByText('dock.empty')).not.toBeNull()
+    expect(document.querySelector('.webui-root')?.textContent).toBe('dock.empty')
+  })
+
+  it('A3 SessionProvider covers only the session cell, never the whole dock', () => {
+    const rootOnly = renderApp(snapshotOf(pane('r1'), [registration('r1', 'root')]), { hasSession: false })
+
+    expect(screen.getByTestId('slot-r1')).not.toBeNull()
+    expect(rootOnly.SessionProvider).not.toHaveBeenCalled()
+    cleanup()
+
+    const sessionCell = renderApp(snapshotOf(pane('s1'), [registration('s1', 'session')]), { hasSession: true })
+
+    expect(sessionCell.SessionProvider).toHaveBeenCalledTimes(1)
+    for (const [props] of sessionCell.SessionProvider.mock.calls) expect(props).not.toHaveProperty('session')
     expect(screen.getByTestId('slot-s1')).not.toBeNull()
   })
 
