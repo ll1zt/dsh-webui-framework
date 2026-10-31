@@ -120,3 +120,28 @@
   font-family: var(--font-ui);
   font-size: 12px;
 }
+
+.webui-dock-splitter {
+  flex: none;
+  background: var(--border);
+  touch-action: none;
+}
+
+.webui-dock-splitter[data-axis='row'] {
+  width: 4px;
+  cursor: col-resize;
+}
+
+.webui-dock-splitter[data-axis='column'] {
+  height: 4px;
+  cursor: row-resize;
+}
+
+.webui-dock-splitter:hover {
+  background: var(--accent);
+}
+
+.webui-dock-splitter:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}

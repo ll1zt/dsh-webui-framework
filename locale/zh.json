@@ -1,6 +1,7 @@
 {
   "dock.empty": "还没有内容",
   "dock.session.empty": "没有主会话",
+  "dock.splitter": "调整分栏大小",
   "dock.tab.close": "关闭标签",
   "shell.error.blockTitle": "这个块出错了",
   "shell.error.copy": "复制错误",
