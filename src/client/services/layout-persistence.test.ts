@@ -1,12 +1,18 @@
+// @vitest-environment happy-dom
 import { Context } from '@deepseek-ai/cordis'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createElement, useSyncExternalStore, type ReactNode } from 'react'
 import type {
   BlockComponent,
   BlockMeta,
   LayoutNode,
   LayoutPreset,
+  LayoutSize,
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { DockView } from '../../ui/shell/DockView.tsx'
+import type { WebuiTranslate } from '../types.ts'
 import { createFakeContext } from '../../test/fake-ctx.ts'
 import { BlockRegistry } from './block-registry.ts'
 import { LayoutController } from './layout-controller.ts'
@@ -34,7 +40,7 @@ function tabsOf(controller: LayoutController): string[] {
 }
 
 /** A real registry with blocks `a` and `b` and the preset `[a]`, under a real controller. */
-async function setup() {
+async function setup(initial: LayoutNode = pane(0, 'a')) {
   const fake = createFakeContext()
   // Blocks enter a declared slot only; the root entry's children table is what declares these keys.
   fake.slots.declare('webui.block.root')
@@ -48,7 +54,7 @@ async function setup() {
   const registry = new BlockRegistry()
   registry.registerBlock(owner, meta('a'), Component)
   registry.registerBlock(owner, meta('b'), Component)
-  const preset: LayoutPreset = { id: 'p', priority: 0, layout: layoutOf(pane(0, 'a')) }
+  const preset: LayoutPreset = { id: 'p', priority: 0, layout: layoutOf(initial) }
   registry.registerPreset(owner, preset)
   return { controller: new LayoutController(registry), registry, owner }
 }
@@ -81,6 +87,7 @@ function fakeForm(status: Status, layout?: unknown) {
 const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
 afterEach(() => {
+  cleanup()
   vi.restoreAllMocks()
 })
 
@@ -250,5 +257,75 @@ describe('LayoutPersistence when the write fails', () => {
     await flush()
 
     expect(warn).not.toHaveBeenCalled()
+  })
+})
+
+describe('LayoutPersistence with a splitter dragged through the dock', () => {
+  const px = (value: number): LayoutSize => ({ px: value, min: 100, max: 400 })
+  const FR: LayoutSize = { fr: 1 }
+  const t = ((key: string) => key) as WebuiTranslate
+
+  /** The dock over a real controller, saving through the fake form; returns the separator and the form. */
+  async function dock() {
+    const split: LayoutNode = {
+      kind: 'split',
+      axis: 'row',
+      children: [pane(0, 'a'), pane(0, 'b')],
+      sizes: [px(200), FR],
+    }
+    const { controller } = await setup(split)
+    const { form } = fakeForm('ready')
+    new LayoutPersistence(controller, form).start()
+    function Harness(): ReactNode {
+      const snapshot = useSyncExternalStore(
+        (listener) => controller.subscribe(listener),
+        () => controller.getSnapshot(),
+      )
+      return createElement(DockView, {
+        snapshot,
+        actions: controller.actions,
+        renderBlock: (blockMeta) => createElement('div', null, blockMeta.id),
+        t,
+        language: 'en',
+      })
+    }
+    render(createElement(Harness))
+    const separator = screen.getByRole('separator', { name: 'dock.splitter' })
+    Object.assign(separator, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+    return { controller, form, separator }
+  }
+
+  it('A4 dragging the separator writes nothing until pointerup, then exactly once with the final layout', async () => {
+    const { controller, form, separator } = await dock()
+    const before = controller.getSnapshot().layout
+
+    fireEvent.pointerDown(separator, { pointerId: 1, clientX: 100 })
+    fireEvent.pointerMove(separator, { pointerId: 1, clientX: 110 })
+    fireEvent.pointerMove(separator, { pointerId: 1, clientX: 120 })
+    fireEvent.pointerMove(separator, { pointerId: 1, clientX: 130 })
+    await flush()
+
+    expect(controller.getSnapshot().layout).not.toBe(before)
+    expect(form.set).not.toHaveBeenCalled()
+
+    fireEvent.pointerUp(separator, { pointerId: 1, clientX: 130 })
+    await flush()
+
+    expect(form.set).toHaveBeenCalledTimes(1)
+    expect(form.set).toHaveBeenCalledWith('layout', controller.getSnapshot().layout)
+    const { root } = controller.getSnapshot().layout
+    expect(root?.kind === 'split' ? root.sizes : undefined).toEqual([px(230), FR])
+  })
+
+  it('A5 one ArrowRight on the separator writes exactly once with the new layout', async () => {
+    const { controller, form, separator } = await dock()
+
+    fireEvent.keyDown(separator, { key: 'ArrowRight' })
+    await flush()
+
+    expect(form.set).toHaveBeenCalledTimes(1)
+    expect(form.set).toHaveBeenCalledWith('layout', controller.getSnapshot().layout)
+    const { root } = controller.getSnapshot().layout
+    expect(root?.kind === 'split' ? root.sizes : undefined).toEqual([px(208), FR])
   })
 })

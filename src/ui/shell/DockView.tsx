@@ -20,7 +20,7 @@ import './dock.css'
 export interface DockViewProps {
   snapshot: DockSnapshot
   /** `resizeSplit` is what the splitters call; without it they still render but resize nothing. */
-  actions: BlockLayoutActions & Partial<Pick<DockActions, 'resizeSplit'>>
+  actions: BlockLayoutActions & Partial<Pick<DockActions, 'resizeSplit' | 'beginResize' | 'endResize'>>
   renderBlock: (meta: BlockMeta, instance: BlockInstanceProps) => ReactNode
   t: WebuiTranslate
   language: string
@@ -35,7 +35,24 @@ export interface DockViewProps {
   wrapSession?: (children: ReactNode) => ReactNode
 }
 
-type DockContext = Omit<DockViewProps, 'snapshot'> & { metas: ReadonlyMap<string, BlockMeta> }
+type DockContext = Omit<DockViewProps, 'snapshot'> & {
+  metas: ReadonlyMap<string, BlockMeta>
+  /** What blocks get as `props.layout`: the five block actions and nothing else of `actions`. */
+  layout: BlockLayoutActions
+}
+
+const blockLayouts = new WeakMap<object, BlockLayoutActions>()
+
+/** The five block actions of `actions`, the same object for the same `actions`, so blocks never see `resizeSplit` and friends. */
+function blockLayoutOf(actions: BlockLayoutActions): BlockLayoutActions {
+  let layout = blockLayouts.get(actions)
+  if (layout === undefined) {
+    const { open, close, activate, resize, resetToPreset } = actions
+    layout = { open, close, activate, resize, resetToPreset }
+    blockLayouts.set(actions, layout)
+  }
+  return layout
+}
 
 const FILL: LayoutSize = { fr: 1 }
 
@@ -49,7 +66,7 @@ function titleOf(meta: BlockMeta, language: string): string {
 }
 
 function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNode {
-  const { actions, renderBlock, t, language, metas, failures, onRetry, wrapSession } = dock
+  const { actions, layout, renderBlock, t, language, metas, failures, onRetry, wrapSession } = dock
   // Tabs keep their index in the layout, so `active` still lines up when an unregistered block is skipped.
   const tabs = pane.tabs.flatMap((ref, index) => {
     const meta = metas.get(ref.blockId)
@@ -58,7 +75,7 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
   const contentOf = (ref: LayoutPane['tabs'][number], meta: BlockMeta, active: boolean): ReactNode => {
     const failure = failures?.get(ref.blockId)
     if (failure === undefined) {
-      const body = renderBlock(meta, { blockId: ref.blockId, contentId: ref.contentId, active, layout: actions })
+      const body = renderBlock(meta, { blockId: ref.blockId, contentId: ref.contentId, active, layout })
       return meta.scope === 'session' && wrapSession !== undefined ? wrapSession(body) : body
     }
     return (
@@ -139,6 +156,8 @@ function Split({ split, path, dock }: { split: LayoutSplit; path: readonly numbe
                 containerPx={containerPx}
                 onResize={(next) => dock.actions.resizeSplit?.(path, next.sizes)}
                 label={dock.t('dock.splitter')}
+                onResizeStart={() => dock.actions.beginResize?.()}
+                onResizeEnd={() => dock.actions.endResize?.()}
               />,
             ]),
         <div key={`cell-${index}`} className="webui-dock-cell" style={sizeStyle(split.sizes[index])}>
@@ -164,7 +183,7 @@ export function DockView({ snapshot, ...dock }: DockViewProps): ReactNode {
   const metas = new Map(snapshot.blocks.map((block: BlockRegistration) => [block.meta.id, block.meta]))
   return (
     <div className="webui-dock">
-      <Node node={root} path={[]} dock={{ ...dock, metas }} />
+      <Node node={root} path={[]} dock={{ ...dock, metas, layout: blockLayoutOf(dock.actions) }} />
     </div>
   )
 }

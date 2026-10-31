@@ -11,6 +11,10 @@ export interface SplitterProps {
   containerPx: () => number
   onResize: (next: LayoutSplit) => void
   label: string
+  /** Called on pointerdown, before the first move of a drag; keyboard resizes never call it. */
+  onResizeStart?: () => void
+  /** Called once when a pointer drag ends by pointerup or pointercancel. */
+  onResizeEnd?: () => void
 }
 
 const KEY_STEP = 8
@@ -33,7 +37,15 @@ function valueSide(
   return undefined
 }
 
-export function Splitter({ split, index, containerPx, onResize, label }: SplitterProps): ReactNode {
+export function Splitter({
+  split,
+  index,
+  containerPx,
+  onResize,
+  label,
+  onResizeStart,
+  onResizeEnd,
+}: SplitterProps): ReactNode {
   const drag = useRef<Drag | null>(null)
   const isRow = split.axis === 'row'
   const side = valueSide(split, index)
@@ -60,6 +72,12 @@ export function Splitter({ split, index, containerPx, onResize, label }: Splitte
     }
   }
 
+  const endDrag = (): void => {
+    if (drag.current === null) return
+    drag.current = null
+    onResizeEnd?.()
+  }
+
   const coordinate = (event: PointerEvent): number => (isRow ? event.clientX : event.clientY)
 
   return (
@@ -82,17 +100,18 @@ export function Splitter({ split, index, containerPx, onResize, label }: Splitte
       onPointerDown={(event) => {
         event.currentTarget.setPointerCapture(event.pointerId)
         drag.current = { start: coordinate(event), split }
+        onResizeStart?.()
       }}
       onPointerMove={(event) => {
         const current = drag.current
         if (current !== null) resizeBy(coordinate(event) - current.start, current.split)
       }}
       onPointerUp={(event) => {
-        drag.current = null
+        endDrag()
         event.currentTarget.releasePointerCapture(event.pointerId)
       }}
       onPointerCancel={(event) => {
-        drag.current = null
+        endDrag()
         event.currentTarget.releasePointerCapture(event.pointerId)
       }}
     />

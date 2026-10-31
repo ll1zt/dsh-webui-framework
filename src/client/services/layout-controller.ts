@@ -3,11 +3,10 @@ import type {
   BlockLayoutActions,
   BlockMeta,
   BlockTarget,
-  LayoutNode,
   LayoutSize,
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
-import { chooseLayout, clampSize, replaceAt, resolveLayout, type LayoutCatalog } from '../../lib/layout.ts'
+import { chooseLayout, clampSize, nodeAt, replaceAt, resolveLayout, type LayoutCatalog } from '../../lib/layout.ts'
 import { activateBlock, closeBlock, openBlock, resizeBlock } from '../../lib/layout-ops.ts'
 import type { BlockRegistration, BlockRegistry } from './block-registry.ts'
 
@@ -21,21 +20,16 @@ export interface DockSnapshot {
 export interface DockActions extends BlockLayoutActions {
   /** Replaces the sizes of the split at `path` (child indices from the root); ignored when it is no split or the count differs. */
   resizeSplit(path: readonly number[], sizes: readonly LayoutSize[]): void
-}
-
-function nodeAtPath(root: LayoutNode, path: readonly number[]): LayoutNode | undefined {
-  let node: LayoutNode | undefined = root
-  for (const index of path) {
-    if (node?.kind !== 'split') return undefined
-    node = node.children[index]
-  }
-  return node
+  /** Starts a drag gesture: until `endResize`, `resizeSplit` publishes the layout but `onAction` listeners hear nothing. */
+  beginResize(): void
+  /** Ends the gesture; when the layout differs from the one at `beginResize`, each `onAction` listener hears it once. */
+  endResize(): void
 }
 
 /** The layout with the sizes of the split at `path` replaced; the same layout when no split there fits `sizes`. */
 function resizeSplitAt(layout: WebuiLayout, path: readonly number[], sizes: readonly LayoutSize[]): WebuiLayout {
   const { root } = layout
-  const target = root === null ? undefined : nodeAtPath(root, path)
+  const target = root === null ? undefined : nodeAt(root, path)
   if (root === null || target?.kind !== 'split' || target.children.length !== sizes.length) return layout
   const next = replaceAt(root, path, (at) => (at.kind === 'split' ? { ...at, sizes: sizes.map(clampSize) } : at))
   return { ...layout, root: next }
@@ -50,6 +44,8 @@ export class LayoutController {
   #settled = false
   /** True until the layout is first set by an action or a saved layout: until then it follows the presets. */
   #following = true
+  /** The layout when the open resize gesture began; null outside a gesture. */
+  #gesture: WebuiLayout | null = null
 
   readonly actions: DockActions = {
     open: (target) => this.#update((layout, catalog) => openBlock(layout, target, catalog)),
@@ -58,7 +54,17 @@ export class LayoutController {
     resize: (target, size: LayoutSize) =>
       this.#update((layout, catalog) => resizeBlock(layout, this.#singled(target, catalog), size)),
     resetToPreset: () => this.#update((_layout, catalog) => this.#adopt(undefined, catalog)),
-    resizeSplit: (path, sizes) => this.#update((layout) => resizeSplitAt(layout, path, sizes)),
+    resizeSplit: (path, sizes) => this.#update((layout) => resizeSplitAt(layout, path, sizes), true),
+    beginResize: () => {
+      this.#gesture ??= this.#snapshot.layout
+    },
+    endResize: () => {
+      const began = this.#gesture
+      if (began === null) return
+      this.#gesture = null
+      const layout = this.#snapshot.layout
+      if (layout !== began) this.#notify(layout)
+    },
   }
 
   constructor(registry: BlockRegistry) {
@@ -141,13 +147,18 @@ export class LayoutController {
     return meta !== undefined && !meta.multiInstance ? { blockId: target.blockId, contentId: '' } : target
   }
 
-  #update(change: (layout: WebuiLayout, catalog: LayoutCatalog) => WebuiLayout): void {
+  #update(change: (layout: WebuiLayout, catalog: LayoutCatalog) => WebuiLayout, deferrable = false): void {
     this.#following = false
     const { blocks, layout } = this.#snapshot
     const next = change(layout, this.#catalogOf(blocks))
     if (next === layout) return
     this.#publish({ layout: next, blocks })
-    for (const listener of [...this.#actionListeners]) listener(next)
+    if (deferrable && this.#gesture !== null) return
+    this.#notify(next)
+  }
+
+  #notify(layout: WebuiLayout): void {
+    for (const listener of [...this.#actionListeners]) listener(layout)
   }
 
   #publish(snapshot: DockSnapshot): void {

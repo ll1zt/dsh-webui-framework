@@ -17,10 +17,22 @@ const splitOf = (axis: 'row' | 'column', sizes: LayoutSize[]): LayoutSplit => ({
 
 function setup(split: LayoutSplit, index = 0) {
   const onResize = vi.fn<(next: LayoutSplit) => void>()
+  const onResizeStart = vi.fn<() => void>()
+  const onResizeEnd = vi.fn<() => void>()
   const containerPx = vi.fn(() => 1000)
-  render(<Splitter split={split} index={index} containerPx={containerPx} onResize={onResize} label="Resize panes" />)
+  render(
+    <Splitter
+      split={split}
+      index={index}
+      containerPx={containerPx}
+      onResize={onResize}
+      label="Resize panes"
+      onResizeStart={onResizeStart}
+      onResizeEnd={onResizeEnd}
+    />,
+  )
   const separator = screen.getByRole('separator', { name: 'Resize panes' })
-  return { separator, onResize, containerPx }
+  return { separator, onResize, containerPx, onResizeStart, onResizeEnd }
 }
 
 /** The sizes handed to the latest onResize call. */
@@ -211,5 +223,55 @@ describe('Splitter', () => {
     fireEvent.pointerMove(separator, { pointerId: 1, clientX: 150 })
 
     expect(onResize).not.toHaveBeenCalled()
+  })
+
+  it('A3 pointerdown calls onResizeStart, and pointerup calls onResizeEnd once, after the moves', () => {
+    const { separator, onResize, onResizeStart, onResizeEnd } = setup(splitOf('row', [px(200), FR]))
+    stubCapture(separator)
+
+    fireEvent.pointerDown(separator, { pointerId: 1, clientX: 100 })
+    expect(onResizeStart).toHaveBeenCalledTimes(1)
+    expect(onResizeEnd).not.toHaveBeenCalled()
+    fireEvent.pointerMove(separator, { pointerId: 1, clientX: 110 })
+    fireEvent.pointerMove(separator, { pointerId: 1, clientX: 120 })
+    expect(onResize).toHaveBeenCalledTimes(2)
+    expect(onResizeEnd).not.toHaveBeenCalled()
+
+    fireEvent.pointerUp(separator, { pointerId: 1, clientX: 120 })
+    expect(onResizeStart).toHaveBeenCalledTimes(1)
+    expect(onResizeEnd).toHaveBeenCalledTimes(1)
+  })
+
+  it('A3 pointercancel calls onResizeEnd once', () => {
+    const { separator, onResizeEnd } = setup(splitOf('row', [px(200), FR]))
+    stubCapture(separator)
+
+    fireEvent.pointerDown(separator, { pointerId: 1, clientX: 100 })
+    fireEvent.pointerCancel(separator, { pointerId: 1 })
+
+    expect(onResizeEnd).toHaveBeenCalledTimes(1)
+  })
+
+  it('A3 keyboard resizing calls neither onResizeStart nor onResizeEnd', () => {
+    const { separator, onResize, onResizeStart, onResizeEnd } = setup(splitOf('row', [px(200), FR]))
+    separator.focus()
+
+    fireEvent.keyDown(separator, { key: 'ArrowRight' })
+    fireEvent.keyDown(separator, { key: 'End' })
+
+    expect(onResize).toHaveBeenCalledTimes(2)
+    expect(onResizeStart).not.toHaveBeenCalled()
+    expect(onResizeEnd).not.toHaveBeenCalled()
+  })
+
+  it('A3 a pointerup or pointercancel without a pointerdown calls no onResizeEnd', () => {
+    const { separator, onResizeStart, onResizeEnd } = setup(splitOf('row', [px(200), FR]))
+    stubCapture(separator)
+
+    fireEvent.pointerUp(separator, { pointerId: 1 })
+    fireEvent.pointerCancel(separator, { pointerId: 1 })
+
+    expect(onResizeStart).not.toHaveBeenCalled()
+    expect(onResizeEnd).not.toHaveBeenCalled()
   })
 })
