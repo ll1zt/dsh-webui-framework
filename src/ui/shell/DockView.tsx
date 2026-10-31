@@ -26,9 +26,10 @@ export interface DockViewProps {
   snapshot: Omit<DockSnapshot, 'titles'> & Partial<Pick<DockSnapshot, 'titles'>>
   /**
    * `resizeSplit` is what the splitters call; without it they still render but resize nothing.
-   * Without `setTabTitle`, `props.tab.setTitle` does nothing.
+   * Without `setTabTitle`, `props.tab.setTitle` does nothing; without `setCloseGuard`, `props.tab.setCloseGuard` does nothing.
    */
-  actions: BlockLayoutActions & Partial<Pick<DockActions, 'resizeSplit' | 'beginResize' | 'endResize' | 'setTabTitle'>>
+  actions: BlockLayoutActions &
+    Partial<Pick<DockActions, 'resizeSplit' | 'beginResize' | 'endResize' | 'setTabTitle' | 'setCloseGuard'>>
   renderBlock: (meta: BlockMeta, instance: BlockInstanceProps) => ReactNode
   t: WebuiTranslate
   language: string
@@ -74,7 +75,7 @@ function blockLayoutOf(actions: BlockLayoutActions): BlockLayoutActions {
 
 const tabHandles = new WeakMap<object, Map<string, BlockTabHandle>>()
 
-/** The handle of tab `ref`, the same object for the same `actions` and tab; `setTitle` forwards to `actions.setTabTitle`. */
+/** The handle of tab `ref`, the same object for the same `actions` and tab; `setTitle` and `setCloseGuard` forward to `actions.setTabTitle` and `actions.setCloseGuard`. */
 function tabHandleOf(actions: DockViewProps['actions'], ref: BlockRef): BlockTabHandle {
   let handles = tabHandles.get(actions)
   if (handles === undefined) {
@@ -85,7 +86,10 @@ function tabHandleOf(actions: DockViewProps['actions'], ref: BlockRef): BlockTab
   let handle = handles.get(key)
   if (handle === undefined) {
     const tabRef: BlockRef = { blockId: ref.blockId, contentId: ref.contentId }
-    handle = { setTitle: (title) => actions.setTabTitle?.(tabRef, title) }
+    handle = {
+      setTitle: (title) => actions.setTabTitle?.(tabRef, title),
+      setCloseGuard: (guard) => actions.setCloseGuard?.(tabRef, guard),
+    }
     handles.set(key, handle)
   }
   return handle
