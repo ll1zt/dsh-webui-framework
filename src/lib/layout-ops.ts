@@ -27,6 +27,12 @@ function refOf(target: BlockTarget, meta: BlockMeta | undefined): BlockRef {
   return { blockId: target.blockId, contentId: single ? '' : (target.contentId ?? '') }
 }
 
+/** The child indices from the root to the pane holding the tab `target` names (a single-instance block has no contentId); undefined when the layout has no such tab. */
+export function tabPathOf(layout: WebuiLayout, target: BlockTarget, catalog: LayoutCatalog): number[] | undefined {
+  if (layout.root === null) return undefined
+  return findTab(layout.root, refOf(target, catalog.blocks.get(target.blockId)))?.path
+}
+
 export function openBlock(layout: WebuiLayout, target: BlockTarget, catalog: LayoutCatalog): WebuiLayout {
   const meta = catalog.blocks.get(target.blockId)
   if (meta === undefined) return layout
