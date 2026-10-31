@@ -126,6 +126,8 @@ export function slotDeclarationsOf(slots: unknown): SlotDeclarations {
 /** Holds the registered blocks and presets; slot entries follow the registering plugin's fiber. */
 export class BlockRegistry {
   readonly #blocks = new Map<string, BlockRegistration>()
+  /** Blocks holding back for their slot declaration; they count for the duplicate check but are not in `blocks()`. */
+  readonly #waiting = new Map<string, BlockRegistration>()
   readonly #presets = new Map<string, PresetRegistration>()
   readonly #remounts = new Map<string, () => void>()
   readonly #diagnostics: WebuiDiagnostic[] = []
@@ -144,7 +146,7 @@ export class BlockRegistry {
   registerBlock(owner: Context, meta: BlockMeta, component: BlockComponent): Disposer {
     validate('block', meta.id, meta.priority)
     const name = ownerName(owner)
-    const existing = this.#blocks.get(meta.id)
+    const existing = this.#blocks.get(meta.id) ?? this.#waiting.get(meta.id)
     if (existing !== undefined) {
       this.#reject('duplicate-block', meta.id, existing.owner, name)
       return () => {}
@@ -177,9 +179,16 @@ export class BlockRegistry {
       this.#notify()
     }
     const declarations = slotDeclarationsOf(owner.slots)
+    let unsubscribe: () => void = () => {}
+    const stopWaiting = (): void => {
+      if (this.#waiting.get(meta.id) === registration) this.#waiting.delete(meta.id)
+    }
     // A late mount runs inside the declaring entry's register call, so its failure must not reach the slot ledger.
+    // The block gets one attempt: once the declaration is seen it stops waiting, whether the mount succeeds or not.
     const adoptLate = (): void => {
-      if (!declarations.declared(slotKey)) return
+      if (this.#waiting.get(meta.id) !== registration || !declarations.declared(slotKey)) return
+      unsubscribe()
+      stopWaiting()
       try {
         adopt()
       } catch (error) {
@@ -196,8 +205,10 @@ export class BlockRegistry {
           remove()
         }
       }
-      const stopWaiting = declarations.onDeclared(slotKey, adoptLate)
+      this.#waiting.set(meta.id, registration)
+      unsubscribe = declarations.onDeclared(slotKey, adoptLate)
       return () => {
+        unsubscribe()
         stopWaiting()
         unregister?.()
         unregister = undefined
