@@ -1,17 +1,17 @@
 /** Layout feature: provides `webuiLayout`, through which other plugins register blocks and presets, and keeps the layout in the profile. */
 import type { Context } from '@deepseek-ai/cordis'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { slotDeclarationsOf, WebuiLayout, type BlockRegistry } from '../services/block-registry.ts'
 import { dockOf } from '../services/dock-state.ts'
-import { LAYOUT_NAMESPACE, LayoutPersistence, type LayoutConfigForm } from '../services/layout-persistence.ts'
+import { LAYOUT_NAMESPACE, LayoutPersistence } from '../services/layout-persistence.ts'
 import { LOG_PREFIX } from '../services/log-prefix.ts'
 import { WEBUI_SLOT_KEYS } from '../types.ts'
 import type { WebuiFeature } from './index.ts'
 
-// Both services are optional and belong to other host plugins, so only the part used here is declared.
+// `loader` belongs to a host plugin and is optional, so only the part used here is declared. The type of `configForms` comes from the
+// `@deepseek-ai/dsh-client-ui-settings/client` import above (installed transitively through dsh-web-app).
 declare module '@deepseek-ai/cordis' {
   interface Context {
-    /** The host settings forms (`@deepseek-ai/dsh-client-ui-settings`), one per profile namespace. */
-    configForms: { get(namespace: string): LayoutConfigForm }
     /** The host plugin loader; its `await` settles once the loader has no entry left to start. */
     loader: { await(): Promise<void> }
   }
@@ -57,7 +57,7 @@ function apply(ctx: Context): void {
 
   ctx.inject(['configForms'], (ctx) => {
     ctx.effect(
-      () => new LayoutPersistence(controller, ctx.configForms.get(LAYOUT_NAMESPACE)).start(),
+      () => new LayoutPersistence(controller, ctx.configForms.get<{ layout?: unknown }>(LAYOUT_NAMESPACE)).start(),
       'webui: layout persistence',
     )
   })
