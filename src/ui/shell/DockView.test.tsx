@@ -506,6 +506,26 @@ describe('DockView block layout actions', () => {
     expect(beginResize).toHaveBeenCalledTimes(1)
     expect(endResize).toHaveBeenCalledTimes(1)
   })
+
+  it('A5 a separator that disappears mid-drag ends the gesture: actions.endResize is called once', () => {
+    const actions = { ...makeActions(), resizeSplit: vi.fn(), beginResize: vi.fn(), endResize: vi.fn() }
+    const blocks = [registration('a'), registration('b')]
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    const dock = (layout: WebuiLayout) => (
+      <DockView snapshot={{ layout, blocks }} actions={actions} renderBlock={renderBlock} t={t} language="en" />
+    )
+    const { rerender } = render(dock(layoutOf(row([pane(0, ['a']), pane(0, ['b'])], [px(200), FR]))))
+    const separator = screen.getByRole('separator', { name: 'dock.splitter' })
+    Object.assign(separator, { setPointerCapture: vi.fn(), releasePointerCapture: vi.fn() })
+
+    fireEvent.pointerDown(separator, { pointerId: 1, clientX: 100 })
+    expect(actions.endResize).not.toHaveBeenCalled()
+    rerender(dock(layoutOf(pane(0, ['a']))))
+
+    expect(screen.queryByRole('separator')).toBeNull()
+    expect(actions.beginResize).toHaveBeenCalledTimes(1)
+    expect(actions.endResize).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('DockView close button names', () => {
