@@ -22,7 +22,7 @@ export interface DockActions extends BlockLayoutActions {
   resizeSplit(path: readonly number[], sizes: readonly LayoutSize[]): void
   /** Starts a drag gesture: until `endResize`, `resizeSplit` publishes the layout but `onAction` listeners hear nothing. */
   beginResize(): void
-  /** Ends the gesture; when the layout differs from the one at `beginResize`, each `onAction` listener hears it once. */
+  /** Ends the gesture; when the layout differs from the one `onAction` listeners last heard (or the one at `beginResize`), each hears it once. */
   endResize(): void
 }
 
@@ -44,7 +44,7 @@ export class LayoutController {
   #settled = false
   /** True until the layout is first set by an action or a saved layout: until then it follows the presets. */
   #following = true
-  /** The layout when the open resize gesture began; null outside a gesture. */
+  /** The layout `onAction` listeners last heard during the open resize gesture (the one at its start until an action notifies); null outside a gesture. */
   #gesture: WebuiLayout | null = null
 
   readonly actions: DockActions = {
@@ -155,6 +155,7 @@ export class LayoutController {
     this.#publish({ layout: next, blocks })
     if (deferrable && this.#gesture !== null) return
     this.#notify(next)
+    if (this.#gesture !== null) this.#gesture = next
   }
 
   #notify(layout: WebuiLayout): void {

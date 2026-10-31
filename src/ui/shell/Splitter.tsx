@@ -1,5 +1,5 @@
 /** The draggable, focusable bar between two cells of a split; pointer and keyboard both go through dragResize. */
-import { useRef, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
+import { useEffect, useRef, type KeyboardEvent, type PointerEvent, type ReactNode } from 'react'
 import type { LayoutSize, LayoutSplit } from '@lllzt/dsh-webui-framework/contract'
 import { dragResize } from '../../lib/split-resize.ts'
 
@@ -13,7 +13,7 @@ export interface SplitterProps {
   label: string
   /** Called on pointerdown, before the first move of a drag; keyboard resizes never call it. */
   onResizeStart?: () => void
-  /** Called once when a pointer drag ends by pointerup or pointercancel. */
+  /** Called once when a pointer drag ends: by pointerup, pointercancel, or the Splitter unmounting mid-drag. */
   onResizeEnd?: () => void
 }
 
@@ -47,6 +47,20 @@ export function Splitter({
   onResizeEnd,
 }: SplitterProps): ReactNode {
   const drag = useRef<Drag | null>(null)
+  const resizeEnd = useRef(onResizeEnd)
+
+  useEffect(() => {
+    resizeEnd.current = onResizeEnd
+  })
+
+  useEffect(
+    () => () => {
+      if (drag.current === null) return
+      drag.current = null
+      resizeEnd.current?.()
+    },
+    [],
+  )
   const isRow = split.axis === 'row'
   const side = valueSide(split, index)
 
