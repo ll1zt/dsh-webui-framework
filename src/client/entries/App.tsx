@@ -31,7 +31,8 @@ type AppProps = PropsRuntime<'root'> & PropsLocale<'webui'> & PropsRenderSlots<B
 /**
  * The root registration's component: the dock behind the whole-page boundary, so a crash in the
  * page's own render shows the error panel instead of a blank page. Every block is mounted through
- * the slot of its scope, inside one SessionProvider that follows the main session.
+ * the slot of its scope; the main session binds only the `session` blocks, so a page without one
+ * still draws the rest of the dock.
  */
 export function App({
   t,
@@ -55,17 +56,20 @@ export function App({
   return (
     <AppErrorBoundary t={t}>
       <div className="webui-root">
-        <SessionProvider>
-          <DockView
-            snapshot={snapshot}
-            actions={dockActions}
-            renderBlock={renderBlock}
-            t={t}
-            language={language}
-            failures={failures}
-            onRetry={retryBlock}
-          />
-        </SessionProvider>
+        <DockView
+          snapshot={snapshot}
+          actions={dockActions}
+          renderBlock={renderBlock}
+          t={t}
+          language={language}
+          failures={failures}
+          onRetry={retryBlock}
+          wrapSession={(children) => (
+            <SessionProvider empty={() => <div className="webui-dock-session-empty">{t('dock.session.empty')}</div>}>
+              {children}
+            </SessionProvider>
+          )}
+        />
       </div>
     </AppErrorBoundary>
   )
