@@ -187,11 +187,14 @@ function createSeedRequire(requested: Set<string>): unknown {
  * no syntax the browser cannot run, only seed modules required, and a gzipped
  * size inside the boot budget.
  * @param libDir - directory holding the built `client.js`.
- * @param options - `budgetBytes` overrides the gzip budget for the check.
+ * @param options - `budgetBytes` overrides the gzip budget; `expectedId` the bundle id the loader record must carry (default `PLUGIN_ID`).
  * @returns the report; violations are listed rather than thrown.
  * @throws {Error} when `libDir` holds no readable `client.js`.
  */
-export async function verifyBundle(libDir: string, options: { budgetBytes?: number } = {}): Promise<BundleReport> {
+export async function verifyBundle(
+  libDir: string,
+  options: { budgetBytes?: number; expectedId?: string } = {},
+): Promise<BundleReport> {
   const bundleFile = join(resolve(libDir), 'client.js')
   const source = await readFile(bundleFile, 'utf8').catch(() => {
     throw new Error(`verify-bundle: cannot read the client bundle at ${bundleFile}`)
@@ -199,6 +202,7 @@ export async function verifyBundle(libDir: string, options: { budgetBytes?: numb
   const { violations, requires } = analyze(source)
   const gzipBytes = gzipSync(source).length
   const budgetBytes = options.budgetBytes ?? DEFAULT_BUDGET_BYTES
+  const expectedId = options.expectedId ?? PLUGIN_ID
   if (gzipBytes > budgetBytes) {
     violations.push({ code: 'size-budget', detail: `${gzipBytes} gzip bytes exceed the ${budgetBytes} byte budget` })
   }
@@ -233,10 +237,10 @@ export async function verifyBundle(libDir: string, options: { budgetBytes?: numb
   const id = typeof record?.id === 'string' ? record.id : undefined
   if (record === undefined) return { id, gzipBytes, externalRequires: [...requires], violations }
 
-  if (record.id !== PLUGIN_ID) {
+  if (record.id !== expectedId) {
     violations.push({
       code: 'wrong-id',
-      detail: `the loader record declares ${JSON.stringify(record.id)} instead of "${PLUGIN_ID}"`,
+      detail: `the loader record declares ${JSON.stringify(record.id)} instead of "${expectedId}"`,
     })
   }
   if ('chunk' in record) {
@@ -291,9 +295,18 @@ function renderReport(libDir: string, report: BundleReport): string {
 }
 
 if (isInvokedAsScript(process.argv[1], import.meta.url)) {
-  const libDir = process.argv[2] ?? 'lib'
+  const args = process.argv.slice(2)
+  const idFlag = args.indexOf('--id')
+  const expectedId = idFlag === -1 ? undefined : args[idFlag + 1]
+  if (idFlag !== -1 && (expectedId === undefined || expectedId.startsWith('--'))) {
+    console.error(
+      'verify-bundle: --id needs a bundle id\nusage: node scripts/verify-bundle.ts <libDir> [--id <bundleId>]',
+    )
+    process.exit(1)
+  }
+  const libDir = (idFlag === -1 ? args : args.filter((_arg, index) => index < idFlag || index > idFlag + 1))[0] ?? 'lib'
   try {
-    const report = await verifyBundle(libDir)
+    const report = await verifyBundle(libDir, expectedId === undefined ? {} : { expectedId })
     console.log(renderReport(libDir, report))
     process.exitCode = report.violations.length === 0 ? 0 : 1
   } catch (error) {
