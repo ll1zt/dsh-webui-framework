@@ -297,3 +297,124 @@ describe('LayoutController resizeSplit', () => {
     expect(sizesOf(controller.getSnapshot())).toEqual([px(300), FR])
   })
 })
+
+describe('LayoutController settle and late blocks', () => {
+  it('A5 a saved block that is not registered yet keeps its tab, and shows at the original place once registered', async () => {
+    const { controller, registry, owner } = await setup([meta('a')])
+    expect(controller.settled).toBe(false)
+
+    controller.replaceLayout(layoutOf(pane(1, ['ghost'], ['a'])), controller.settled)
+    expect(tabsOf(controller.getSnapshot())).toEqual(['ghost', 'a'])
+
+    registry.registerBlock(owner, meta('ghost'), Component)
+    expect(tabsOf(controller.getSnapshot())).toEqual(['ghost', 'a'])
+    expect(activeOf(controller.getSnapshot())).toBe(1)
+  })
+
+  it('A5 settle drops a block that is still unregistered, flips settled once, and keeps registered ones', async () => {
+    const { controller } = await setup([meta('a')])
+    controller.replaceLayout(layoutOf(pane(0, ['a'], ['ghost'])), controller.settled)
+    const listener = vi.fn()
+    controller.subscribe(listener)
+
+    controller.settle()
+    expect(controller.settled).toBe(true)
+    expect(tabsOf(controller.getSnapshot())).toEqual(['a'])
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    controller.settle()
+    expect(controller.settled).toBe(true)
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('A5 a block registered before settle survives it, and a layout that needs no repair publishes nothing', async () => {
+    const { controller, registry, owner } = await setup([meta('a')])
+    controller.replaceLayout(layoutOf(pane(0, ['a'], ['late'])), controller.settled)
+    registry.registerBlock(owner, meta('late'), Component)
+    const before = controller.getSnapshot()
+    const listener = vi.fn()
+    controller.subscribe(listener)
+
+    controller.settle()
+
+    expect(controller.getSnapshot()).toBe(before)
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('A5 settle is not a user action: the layout still follows presets afterwards', async () => {
+    const { controller, registry, owner } = await setup([meta('a'), meta('b')], [presetOf('p', 5, pane(0, ['a']))])
+
+    controller.settle()
+    registry.registerPreset(owner, presetOf('p0', 1, pane(0, ['b'])))
+
+    expect(tabsOf(controller.getSnapshot())).toEqual(['b'])
+  })
+})
+
+describe('LayoutController onAction', () => {
+  it('A3 each action that changes the layout calls the listener once with the new layout, resizeSplit included', async () => {
+    const { controller } = await setup(
+      [meta('a'), meta('b'), meta('c')],
+      [presetOf('p', 0, row([pane(0, ['a']), pane(0, ['b'], ['c'])], [px(260), FR]))],
+    )
+    const listener = vi.fn()
+    controller.onAction(listener)
+    const actions = controller.actions
+    const steps: (() => void)[] = [
+      () => actions.close({ blockId: 'c' }),
+      () => actions.open({ blockId: 'c' }),
+      () => actions.activate({ blockId: 'b' }),
+      () => actions.resize({ blockId: 'a' }, px(320)),
+      () => actions.resizeSplit([], [px(300), FR]),
+      () => actions.resetToPreset(),
+    ]
+
+    for (const [index, step] of steps.entries()) {
+      listener.mockClear()
+      const before = controller.getSnapshot().layout
+      step()
+      expect(controller.getSnapshot().layout, `step ${index} changes the layout`).not.toEqual(before)
+      expect(listener, `step ${index}`).toHaveBeenCalledTimes(1)
+      expect(listener.mock.calls[0]?.[0], `step ${index}`).toBe(controller.getSnapshot().layout)
+    }
+  })
+
+  it('A3 an action that changes nothing does not call the listener', async () => {
+    const { controller } = await setup(
+      [meta('a'), meta('b')],
+      [presetOf('p', 0, row([pane(0, ['a']), pane(0, ['b'])], [px(260), FR]))],
+    )
+    const listener = vi.fn()
+    controller.onAction(listener)
+
+    controller.actions.resizeSplit([0], [FR])
+    controller.actions.resizeSplit([], [FR])
+    controller.actions.resizeSplit([], [px(200), FR, FR])
+
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('A3 replaceLayout, settle and registry changes never reach the listener', async () => {
+    const { controller, registry, owner } = await setup([meta('a')], [presetOf('p', 5, pane(0, ['a']))])
+    const listener = vi.fn()
+    controller.onAction(listener)
+
+    controller.replaceLayout(layoutOf(pane(0, ['a'], ['ghost'])), false)
+    registry.registerBlock(owner, meta('b'), Component)
+    controller.settle()
+    registry.registerPreset(owner, presetOf('p0', 1, pane(0, ['b'])))
+
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('A3 a listener stops hearing actions once it unsubscribes', async () => {
+    const { controller } = await setup([meta('a')])
+    const listener = vi.fn()
+    const unsubscribe = controller.onAction(listener)
+
+    unsubscribe()
+    controller.actions.open({ blockId: 'a' })
+
+    expect(listener).not.toHaveBeenCalled()
+  })
+})

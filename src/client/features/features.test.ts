@@ -166,3 +166,123 @@ describe('block failures through the root seat', () => {
     expect(face.hooks.errors.getSnapshot().has('F')).toBe(true)
   })
 })
+
+describe('layout persistence through optional services', () => {
+  const META = { scope: 'root', priority: 0, closable: true, multiInstance: false } as const
+  const pane = (...ids: string[]) => ({
+    kind: 'pane',
+    tabs: ids.map((blockId) => ({ blockId, contentId: '' })),
+    active: 0,
+  })
+  const saved = (...ids: string[]) => ({ version: 1, root: pane(...ids), activePane: [] })
+
+  interface DockFace {
+    hooks: { dock: { getSnapshot(): { layout: { root: { tabs: { blockId: string }[] } | null } } } }
+    dockActions: { open(target: { blockId: string }): void }
+  }
+
+  /** A configForms service over one form; `ready` decides whether the form already holds `layout`. */
+  function configFormsOf(layout: unknown) {
+    const form = {
+      getSnapshot: () => ({ status: 'ready' as const, value: { layout } }),
+      subscribe: () => () => undefined,
+      set: vi.fn(() => Promise.resolve(true)),
+    }
+    const get = vi.fn((_id: string) => form)
+    return { form, service: { get } }
+  }
+
+  /** Load shell and layout on a real root and register the blocks `ids` through a contributor. */
+  async function loaded(provide: (root: Context) => void, ...ids: string[]) {
+    const fake = createFakeContext()
+    const root = new Context()
+    root.provide('slots', fake.slots)
+    root.provide('locale', fake.locale)
+    provide(root)
+    await root.plugin(featureNamed('shell'))
+    await root.plugin(featureNamed('layout'))
+    const captured: Context[] = []
+    await root.plugin({ name: 'alpha', inject: ['webuiLayout'], apply: (ctx: Context) => void captured.push(ctx) })
+    for (const id of ids) captured[0]?.webuiLayout.registerBlock({ ...META, id, title: { zh: id, en: id } }, () => null)
+    const slots: FakeSlots = fake.slots
+    const inject = slots.entries('root')[0]?.options.inject
+    if (typeof inject !== 'function') throw new Error('the root registration has no inject factory')
+    const face = inject() as DockFace
+    const tabs = () => face.hooks.dock.getSnapshot().layout.root?.tabs.map((tab) => tab.blockId)
+    return { root, face, tabs }
+  }
+
+  const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
+
+  it('A2 the saved layout in the configForms form of webui-framework is what the dock shows', async () => {
+    const { form, service } = configFormsOf(saved('b', 'a'))
+
+    const { tabs } = await loaded((root) => void root.provide('configForms', service), 'a', 'b')
+    await flush()
+
+    expect(service.get).toHaveBeenCalledWith('webui-framework')
+    expect(form.set).not.toHaveBeenCalled()
+    expect(tabs()).toEqual(['b', 'a'])
+  })
+
+  it('A6 without configForms the page starts with its layout in memory, and a configForms that arrives later is picked up', async () => {
+    const bare = await loaded(() => undefined, 'a', 'b')
+    expect(() => bare.face.dockActions.open({ blockId: 'a' })).not.toThrow()
+    expect(bare.tabs()).toEqual(['a'])
+
+    const { form, service } = configFormsOf(saved('b'))
+    const waiting = await loaded(() => undefined, 'a', 'b')
+    waiting.root.provide('configForms', service)
+    await flush()
+
+    expect(service.get).toHaveBeenCalledWith('webui-framework')
+    expect(waiting.tabs()).toEqual(['b'])
+    expect(form.set).not.toHaveBeenCalled()
+  })
+
+  it('A5 a saved block that has not registered stays until the loader finishes, and is dropped after', async () => {
+    let finish: () => void = () => undefined
+    const done = new Promise<void>((resolve) => (finish = resolve))
+    const { service } = configFormsOf(saved('a', 'ghost'))
+
+    const { tabs } = await loaded((root) => {
+      root.provide('configForms', service)
+      root.provide('loader', { await: () => done })
+    }, 'a')
+    await flush()
+    expect(tabs()).toEqual(['a', 'ghost'])
+
+    finish()
+    await flush()
+    expect(tabs()).toEqual(['a'])
+  })
+
+  it('A5 without a loader service the layout never settles, so the unregistered block stays', async () => {
+    const { form, service } = configFormsOf(saved('a', 'ghost'))
+
+    const { tabs } = await loaded((root) => void root.provide('configForms', service), 'a')
+    await flush()
+
+    expect(tabs()).toEqual(['a', 'ghost'])
+    expect(form.set).not.toHaveBeenCalled()
+  })
+
+  it('A5 a saved block registering before the loader finishes is at its original place after', async () => {
+    let finish: () => void = () => undefined
+    const done = new Promise<void>((resolve) => (finish = resolve))
+    const { service } = configFormsOf(saved('ghost', 'a'))
+    const { tabs, root } = await loaded((host) => {
+      host.provide('configForms', service)
+      host.provide('loader', { await: () => done })
+    }, 'a')
+    await flush()
+    const captured: Context[] = []
+    await root.plugin({ name: 'late', inject: ['webuiLayout'], apply: (ctx: Context) => void captured.push(ctx) })
+    captured[0]?.webuiLayout.registerBlock({ ...META, id: 'ghost', title: { zh: 'g', en: 'g' } }, () => null)
+
+    finish()
+    await flush()
+
+    expect(tabs()).toEqual(['ghost', 'a'])
+  })
+})
