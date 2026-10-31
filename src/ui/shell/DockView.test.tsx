@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type {
   BlockLayoutActions,
   BlockMeta,
@@ -277,5 +277,96 @@ describe('DockView block failures', () => {
 
     expect(screen.getByRole('alert')).not.toBeNull()
     expect(screen.queryByRole('button', { name: 'shell.error.retry' })).toBeNull()
+  })
+})
+
+describe('DockView splitters', () => {
+  const blocks = [registration('a'), registration('b'), registration('c')]
+  const threeCells = layoutOf(row([pane(0, ['a']), pane(0, ['b']), pane(0, ['c'])], [px(200), FR, px(200)]))
+
+  it('A2 a split of three cells draws exactly two separators named dock.splitter between them', () => {
+    renderDock(threeCells, blocks)
+
+    const separators = screen.getAllByRole('separator', { name: 'dock.splitter' })
+    expect(separators).toHaveLength(2)
+    for (const separator of separators) expect(separator.getAttribute('aria-orientation')).toBe('vertical')
+    expect(screen.getAllByRole('tablist')).toHaveLength(3)
+  })
+
+  it('A3 ArrowRight on the separator of a nested split hands that split path and the new sizes to resizeSplit', () => {
+    const resizeSplit = vi.fn()
+    const nestedColumn: LayoutNode = {
+      kind: 'split',
+      axis: 'column',
+      children: [pane(0, ['b']), pane(0, ['c'])],
+      sizes: [FR, px(200)],
+    }
+    const layout = layoutOf(row([pane(0, ['a']), nestedColumn], [px(260), FR]))
+    const actions = { ...makeActions(), resizeSplit }
+    renderDock(layout, blocks, { actions })
+
+    const separators = screen.getAllByRole('separator', { name: 'dock.splitter' })
+    expect(separators).toHaveLength(2)
+    const inner = separators.find((separator) => separator.getAttribute('aria-orientation') === 'horizontal')
+    if (inner === undefined) throw new Error('no separator for the nested column split')
+
+    inner.focus()
+    fireEvent.keyDown(inner, { key: 'ArrowDown' })
+
+    expect(resizeSplit).toHaveBeenCalledTimes(1)
+    expect(resizeSplit).toHaveBeenCalledWith([1], [FR, px(192)])
+
+    const outer = separators.find((separator) => separator.getAttribute('aria-orientation') === 'vertical')
+    if (outer === undefined) throw new Error('no separator for the root split')
+    fireEvent.keyDown(outer, { key: 'ArrowRight' })
+    expect(resizeSplit).toHaveBeenLastCalledWith([], [px(268), FR])
+  })
+
+  it('A2 resizing through a separator changes the cell size without remounting the blocks', () => {
+    const mounts = vi.fn()
+    function Probe({ id }: { id: string }): ReactNode {
+      useEffect(() => {
+        mounts(id)
+      }, [id])
+      return <div data-testid={`probe-${id}`}>{id}</div>
+    }
+
+    function Harness(): ReactNode {
+      const [layout, setLayout] = useState(threeCells)
+      const actions = {
+        ...makeActions(),
+        resizeSplit: (path: readonly number[], sizes: readonly LayoutSize[]) =>
+          setLayout((current) =>
+            current.root?.kind === 'split' && path.length === 0
+              ? { ...current, root: { ...current.root, sizes } }
+              : current,
+          ),
+      }
+      return (
+        <DockView
+          snapshot={{ layout, blocks }}
+          actions={actions}
+          renderBlock={(meta) => <Probe id={meta.id} />}
+          t={t}
+          language="en"
+        />
+      )
+    }
+
+    render(<Harness />)
+    const probes = ['a', 'b', 'c'].map((id) => screen.getByTestId(`probe-${id}`))
+    expect(mounts).toHaveBeenCalledTimes(3)
+    expect(cellOf(probes[0] as HTMLElement).style.flexBasis).toBe('200px')
+
+    const [first] = screen.getAllByRole('separator', { name: 'dock.splitter' })
+    fireEvent.keyDown(first as HTMLElement, { key: 'ArrowRight' })
+    fireEvent.keyDown(first as HTMLElement, { key: 'ArrowRight', shiftKey: true })
+
+    expect(cellOf(probes[0] as HTMLElement).style.flexBasis).toBe('240px')
+    ;['a', 'b', 'c'].forEach((id, index) => {
+      expect(screen.getByTestId(`probe-${id}`)).toBe(probes[index])
+      expect(probes[index]?.isConnected).toBe(true)
+    })
+    expect(mounts).toHaveBeenCalledTimes(3)
   })
 })

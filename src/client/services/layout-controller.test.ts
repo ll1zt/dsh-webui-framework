@@ -237,3 +237,63 @@ describe('LayoutController registry changes and saved layouts', () => {
     expect(tabsOf(controller.getSnapshot())).toEqual(['a'])
   })
 })
+
+describe('LayoutController resizeSplit', () => {
+  const nested = () => row([pane(0, ['a']), row([pane(0, ['b']), pane(0, ['c'])], [FR, FR])], [px(260), FR])
+
+  it('A3 resizeSplit on the root path replaces its sizes with px clamped, and notifies', async () => {
+    const { controller } = await setup(
+      [meta('a'), meta('b')],
+      [presetOf('p', 0, row([pane(0, ['a']), pane(0, ['b'])], [px(260), FR]))],
+    )
+    const listener = vi.fn()
+    controller.subscribe(listener)
+
+    controller.actions.resizeSplit([], [px(300), { fr: 2 }])
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(300), { fr: 2 }])
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    controller.actions.resizeSplit([], [{ px: 900, min: 100, max: 400 }, FR])
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(400), FR])
+    controller.actions.resizeSplit([], [{ px: 5, min: 100, max: 400 }, FR])
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(100), FR])
+  })
+
+  it('A3 resizeSplit reaches a nested split by its child-index path and leaves the rest alone', async () => {
+    const { controller } = await setup([meta('a'), meta('b'), meta('c')], [presetOf('p', 0, nested())])
+
+    controller.actions.resizeSplit([1], [{ fr: 3 }, { fr: 1 }])
+
+    const root = rootOf(controller.getSnapshot())
+    if (root.kind !== 'split') throw new Error('root is not a split')
+    expect(root.sizes).toEqual([px(260), FR])
+    expect(root.children[1]).toEqual(row([pane(0, ['b']), pane(0, ['c'])], [{ fr: 3 }, { fr: 1 }]))
+  })
+
+  it('A3 a path that is not a split, or sizes of the wrong length, change nothing and notify nobody', async () => {
+    const { controller } = await setup([meta('a'), meta('b'), meta('c')], [presetOf('p', 0, nested())])
+    const before = controller.getSnapshot()
+    const listener = vi.fn()
+    controller.subscribe(listener)
+
+    controller.actions.resizeSplit([0], [FR])
+    controller.actions.resizeSplit([5], [FR, FR])
+    controller.actions.resizeSplit([], [FR])
+    controller.actions.resizeSplit([], [px(200), FR, FR])
+
+    expect(controller.getSnapshot()).toBe(before)
+    expect(listener).not.toHaveBeenCalled()
+  })
+
+  it('A3 resizeSplit counts as a user action: the layout stops following presets afterwards', async () => {
+    const { controller, registry, owner } = await setup(
+      [meta('a'), meta('b')],
+      [presetOf('p', 5, row([pane(0, ['a']), pane(0, ['b'])], [px(260), FR]))],
+    )
+
+    controller.actions.resizeSplit([], [px(300), FR])
+    registry.registerPreset(owner, presetOf('p0', 1, row([pane(0, ['a']), pane(0, ['b'])], [px(150), FR])))
+
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(300), FR])
+  })
+})
