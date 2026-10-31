@@ -15,6 +15,7 @@ import { emptyLayout } from '../../lib/layout.ts'
 import { createFakeContext } from '../../test/fake-ctx.ts'
 import { BlockRegistry } from './block-registry.ts'
 import { LayoutController, tabKey, type DockSnapshot } from './layout-controller.ts'
+import { LOG_PREFIX } from './log-prefix.ts'
 
 const Component: BlockComponent = () => null
 
@@ -270,6 +271,20 @@ describe('LayoutController action results', () => {
     expect(tabsOf(controller.getSnapshot())).toEqual(['a'])
     expect(listener).toHaveBeenCalledTimes(1)
     expect(onAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('A6 a vetoing guard is not asked when close is rejected as not-closable or no-such-tab', async () => {
+    const { controller } = await setup(
+      [meta('pin', { closable: false }), meta('m', { multiInstance: true })],
+      [presetOf('p', 0, pane(0, ['pin'], ['m', 'x']))],
+    )
+    const guard = vi.fn(() => false)
+    controller.actions.setCloseGuard({ blockId: 'm', contentId: 'x' }, guard)
+
+    expectRejected(controller, () => controller.actions.close({ blockId: 'pin' }), 'not-closable')
+    expectRejected(controller, () => controller.actions.close({ blockId: 'm', contentId: 'nope' }), 'no-such-tab')
+
+    expect(guard).not.toHaveBeenCalled()
   })
 
   it('A3 activate and resize are rejected as unknown-block for a block that never registered', async () => {
@@ -685,6 +700,147 @@ describe('LayoutController beginResize / endResize', () => {
     expect(onAction).toHaveBeenCalledTimes(2)
     expect(onAction).toHaveBeenLastCalledWith(controller.getSnapshot().layout)
     expect(sizesOf(controller.getSnapshot())).toEqual([px(320), FR])
+  })
+})
+
+describe('LayoutController close guards', () => {
+  const doc: BlockRef = { blockId: 'doc', contentId: '' }
+  const guarded = () =>
+    setup([meta('doc'), meta('keep'), meta('extra')], [presetOf('p', 0, pane(0, ['keep'], ['doc']))])
+
+  it('A1 a guard that returns false vetoes close: the tab stays and nobody is told', async () => {
+    const { controller } = await guarded()
+    const guard = vi.fn(() => false)
+    controller.actions.setCloseGuard(doc, guard)
+    const listener = vi.fn()
+    const onAction = vi.fn()
+    controller.subscribe(listener)
+    controller.onAction(onAction)
+    const before = controller.getSnapshot()
+
+    expect(controller.actions.close(doc)).toEqual({ ok: false, reason: 'vetoed' })
+
+    expect(guard).toHaveBeenCalledTimes(1)
+    expect(tabsOf(controller.getSnapshot())).toEqual(['keep', 'doc'])
+    expect(controller.getSnapshot()).toBe(before)
+    expect(listener).not.toHaveBeenCalled()
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('A1 a guard that returns true lets close through and returns ok', async () => {
+    const { controller } = await guarded()
+    const guard = vi.fn(() => true)
+    controller.actions.setCloseGuard(doc, guard)
+    const onAction = vi.fn()
+    controller.onAction(onAction)
+
+    expect(controller.actions.close(doc)).toEqual({ ok: true })
+
+    expect(guard).toHaveBeenCalledTimes(1)
+    expect(tabsOf(controller.getSnapshot())).toEqual(['keep'])
+    expect(onAction).toHaveBeenCalledTimes(1)
+  })
+
+  it('A1 a later guard replaces the earlier one for the same tab', async () => {
+    const { controller } = await guarded()
+    const first = vi.fn(() => false)
+    const second = vi.fn(() => true)
+    controller.actions.setCloseGuard(doc, first)
+    controller.actions.setCloseGuard(doc, second)
+
+    expect(controller.actions.close(doc)).toEqual({ ok: true })
+
+    expect(first).not.toHaveBeenCalled()
+    expect(second).toHaveBeenCalledTimes(1)
+  })
+
+  it('A2 a guard that throws vetoes close and warns exactly once with the prefix and the block id', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const { controller } = await guarded()
+      controller.actions.setCloseGuard(doc, () => {
+        throw new Error('boom')
+      })
+      const before = controller.getSnapshot()
+
+      expect(controller.actions.close(doc)).toEqual({ ok: false, reason: 'vetoed' })
+
+      expect(controller.getSnapshot()).toBe(before)
+      expect(tabsOf(controller.getSnapshot())).toEqual(['keep', 'doc'])
+      expect(warn).toHaveBeenCalledTimes(1)
+      const text = warn.mock.calls[0]?.map(String).join(' ') ?? ''
+      expect(text).toContain(LOG_PREFIX)
+      expect(text).toContain('doc')
+    } finally {
+      warn.mockRestore()
+    }
+  })
+
+  it('A3 resetToPreset is vetoed as a whole when a tab the preset lacks vetoes, and the layout stays', async () => {
+    const { controller } = await setup([meta('keep'), meta('extra')], [presetOf('p', 0, pane(0, ['keep']))])
+    controller.actions.open({ blockId: 'extra' })
+    const guard = vi.fn(() => false)
+    controller.actions.setCloseGuard({ blockId: 'extra', contentId: '' }, guard)
+    const listener = vi.fn()
+    const onAction = vi.fn()
+    controller.subscribe(listener)
+    controller.onAction(onAction)
+    const before = controller.getSnapshot()
+
+    expect(controller.actions.resetToPreset()).toEqual({ ok: false, reason: 'vetoed' })
+
+    expect(guard).toHaveBeenCalledTimes(1)
+    expect(tabsOf(controller.getSnapshot())).toEqual(['keep', 'extra'])
+    expect(controller.getSnapshot()).toBe(before)
+    expect(listener).not.toHaveBeenCalled()
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('A3 resetToPreset goes ahead when the only vetoing guard belongs to a tab the preset keeps', async () => {
+    const { controller } = await setup([meta('keep'), meta('extra')], [presetOf('p', 0, pane(0, ['keep']))])
+    controller.actions.open({ blockId: 'extra' })
+    const keepGuard = vi.fn(() => false)
+    const extraGuard = vi.fn(() => true)
+    controller.actions.setCloseGuard({ blockId: 'keep', contentId: '' }, keepGuard)
+    controller.actions.setCloseGuard({ blockId: 'extra', contentId: '' }, extraGuard)
+
+    expect(controller.actions.resetToPreset()).toEqual({ ok: true })
+
+    expect(tabsOf(controller.getSnapshot())).toEqual(['keep'])
+    expect(extraGuard).toHaveBeenCalledTimes(1)
+    expect(keepGuard).not.toHaveBeenCalled()
+  })
+
+  it('A4 setCloseGuard(null) removes the guard, so close is no longer stopped', async () => {
+    const { controller } = await guarded()
+    const guard = vi.fn(() => false)
+    controller.actions.setCloseGuard(doc, guard)
+    controller.actions.setCloseGuard(doc, null)
+
+    expect(controller.actions.close(doc)).toEqual({ ok: true })
+
+    expect(guard).not.toHaveBeenCalled()
+    expect(tabsOf(controller.getSnapshot())).toEqual(['keep'])
+  })
+
+  it('A4 a tab that leaves because its block unregistered is not asked, and its guard is gone when it returns', async () => {
+    const { controller, registry, owner } = await setup([meta('a')])
+    const dispose = registry.registerBlock(owner, meta('x', { multiInstance: true }), Component)
+    controller.actions.open({ blockId: 'a' })
+    controller.actions.open({ blockId: 'x', contentId: 'one' })
+    controller.settle()
+    const ref: BlockRef = { blockId: 'x', contentId: 'one' }
+    const guard = vi.fn(() => false)
+    controller.actions.setCloseGuard(ref, guard)
+
+    dispose()
+    expect(tabsOf(controller.getSnapshot())).not.toContain('x:one')
+    expect(guard).not.toHaveBeenCalled()
+
+    registry.registerBlock(owner, meta('x', { multiInstance: true }), Component)
+    controller.actions.open(ref)
+    expect(controller.actions.close(ref)).toEqual({ ok: true })
+    expect(guard).not.toHaveBeenCalled()
   })
 })
 

@@ -789,6 +789,37 @@ describe('DockView tab handle', () => {
     expect(setTabTitle).toHaveBeenCalledTimes(2)
   })
 
+  it('A5 tab.setCloseGuard forwards to actions.setCloseGuard with the ref of that tab', () => {
+    const setCloseGuard = vi.fn()
+    const actions = { ...makeActions(), setCloseGuard }
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    render(dock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+    const guard = () => false
+
+    handleOf(renderBlock, 'one').setCloseGuard(guard)
+    expect(setCloseGuard).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'one' }, guard)
+    handleOf(renderBlock, 'two').setCloseGuard(null)
+    expect(setCloseGuard).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'two' }, null)
+    expect(setCloseGuard).toHaveBeenCalledTimes(2)
+  })
+
+  it('A5 the × button of a tab calls actions.close for its ref, and a vetoed close leaves the tab rendered', () => {
+    const close = vi.fn<BlockLayoutActions['close']>(() => ({ ok: false, reason: 'vetoed' }))
+    const actions = { ...makeActions(), close }
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>((_meta, instance) => (
+      <div data-testid={`tab-${instance.contentId}`} />
+    ))
+    render(dock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'dock.tab.close' })[1] as HTMLElement)
+
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledWith(expect.objectContaining({ blockId: 'n', contentId: 'two' }))
+    expect(screen.getAllByRole('button', { name: 'dock.tab.close' })).toHaveLength(2)
+    expect(screen.getByTestId('tab-one')).not.toBeNull()
+    expect(screen.getByTestId('tab-two')).not.toBeNull()
+  })
+
   it('A5 the same ref gets the same tab object across rerenders, another ref another one', () => {
     const actions = { ...makeActions(), setTabTitle: vi.fn() }
     const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
