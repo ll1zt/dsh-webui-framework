@@ -4,13 +4,15 @@ import type {
   BlockMeta,
   BlockRef,
   BlockTarget,
+  LayoutActionRejection,
+  LayoutActionResult,
   LayoutNode,
   LayoutSize,
   LocalizedText,
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
 import { chooseLayout, clampSize, nodeAt, replaceAt, resolveLayout, type LayoutCatalog } from '../../lib/layout.ts'
-import { activateBlock, closeBlock, openBlock, resizeBlock } from '../../lib/layout-ops.ts'
+import { activateBlock, closeBlock, openBlock, resizeBlock, tabPathOf } from '../../lib/layout-ops.ts'
 import type { BlockRegistration, BlockRegistry } from './block-registry.ts'
 
 /** The key of a tab in `DockSnapshot.titles`. */
@@ -77,12 +79,44 @@ export class LayoutController {
   #gesture: WebuiLayout | null = null
 
   readonly actions: DockActions = {
-    open: (target) => this.#update((layout, catalog) => openBlock(layout, target, catalog)),
-    close: (target) => this.#update((layout, catalog) => closeBlock(layout, target, catalog)),
-    activate: (target) => this.#update((layout, catalog) => activateBlock(layout, this.#singled(target, catalog))),
+    open: (target) =>
+      this.#act(
+        (_layout, catalog) => (catalog.blocks.has(target.blockId) ? undefined : 'unknown-block'),
+        (layout, catalog) => openBlock(layout, target, catalog),
+      ),
+    close: (target) =>
+      this.#act(
+        (layout, catalog) => {
+          const meta = catalog.blocks.get(target.blockId)
+          if (meta === undefined) return 'unknown-block'
+          if (meta.closable === false) return 'not-closable'
+          return tabPathOf(layout, target, catalog) === undefined ? 'no-such-tab' : undefined
+        },
+        (layout, catalog) => closeBlock(layout, target, catalog),
+      ),
+    activate: (target) =>
+      this.#act(
+        (layout, catalog) => {
+          if (!catalog.blocks.has(target.blockId)) return 'unknown-block'
+          return tabPathOf(layout, target, catalog) === undefined ? 'no-such-tab' : undefined
+        },
+        (layout, catalog) => activateBlock(layout, this.#singled(target, catalog)),
+      ),
     resize: (target, size: LayoutSize) =>
-      this.#update((layout, catalog) => resizeBlock(layout, this.#singled(target, catalog), size)),
-    resetToPreset: () => this.#update((_layout, catalog) => this.#adopt(undefined, catalog)),
+      this.#act(
+        (layout, catalog) => {
+          if (!catalog.blocks.has(target.blockId)) return 'unknown-block'
+          const path = tabPathOf(layout, target, catalog)
+          if (path === undefined) return 'no-such-tab'
+          return path.length === 0 ? 'not-in-split' : undefined
+        },
+        (layout, catalog) => resizeBlock(layout, this.#singled(target, catalog), size),
+      ),
+    resetToPreset: () =>
+      this.#act(
+        () => undefined,
+        (_layout, catalog) => this.#adopt(undefined, catalog),
+      ),
     resizeSplit: (path, sizes) => this.#update((layout) => resizeSplitAt(layout, path, sizes), true),
     beginResize: () => {
       this.#gesture ??= this.#snapshot.layout
@@ -188,6 +222,17 @@ export class LayoutController {
   #singled(target: BlockTarget, catalog: LayoutCatalog): BlockTarget {
     const meta: BlockMeta | undefined = catalog.blocks.get(target.blockId)
     return meta !== undefined && !meta.multiInstance ? { blockId: target.blockId, contentId: '' } : target
+  }
+
+  /** Judges the request against the current layout first: a rejection touches nothing, an accepted one is applied by `#update`. */
+  #act(
+    judge: (layout: WebuiLayout, catalog: LayoutCatalog) => LayoutActionRejection | undefined,
+    change: (layout: WebuiLayout, catalog: LayoutCatalog) => WebuiLayout,
+  ): LayoutActionResult {
+    const reason = judge(this.#snapshot.layout, this.#catalogOf(this.#snapshot.blocks))
+    if (reason !== undefined) return { ok: false, reason }
+    this.#update(change)
+    return { ok: true }
   }
 
   #update(change: (layout: WebuiLayout, catalog: LayoutCatalog) => WebuiLayout, deferrable = false): void {

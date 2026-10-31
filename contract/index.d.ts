@@ -100,13 +100,34 @@ export interface BlockTarget {
   contentId?: string
 }
 
+/**
+ * Why a layout action did nothing:
+ * - `unknown-block`: no block is registered under the target's blockId.
+ * - `not-closable`: the block is registered with `closable: false`.
+ * - `no-such-tab`: the block is registered but the layout has no tab for the target.
+ * - `not-in-split`: the tab sits in the layout's root pane, so no split gives it a size to change.
+ */
+export type LayoutActionRejection = 'unknown-block' | 'not-closable' | 'no-such-tab' | 'not-in-split'
+
+/**
+ * What a layout action reports, synchronously. `ok: true` means the request was accepted, even when the layout
+ * already looked that way (opening an open tab, activating the active one); a rejection changes nothing
+ * and is not announced to `onAction` listeners.
+ */
+export type LayoutActionResult = { readonly ok: true } | { readonly ok: false; readonly reason: LayoutActionRejection }
+
 /** Layout operations a block instance may ask for. */
 export interface BlockLayoutActions {
-  open(target: BlockTarget): void
-  close(target: BlockTarget): void
-  activate(target: BlockTarget): void
-  resize(target: BlockTarget, size: LayoutSize): void
-  resetToPreset(): void
+  /** Opens the block's tab, or activates it when open. Rejected with `unknown-block`. */
+  open(target: BlockTarget): LayoutActionResult
+  /** Closes the tab. Rejected with `unknown-block`, then `not-closable`, then `no-such-tab`. */
+  close(target: BlockTarget): LayoutActionResult
+  /** Activates the tab. Rejected with `unknown-block`, then `no-such-tab`. */
+  activate(target: BlockTarget): LayoutActionResult
+  /** Sizes the split slot holding the tab. Rejected with `unknown-block`, then `no-such-tab`, then `not-in-split`. */
+  resize(target: BlockTarget, size: LayoutSize): LayoutActionResult
+  /** Re-adopts the first preset. Always `ok`. */
+  resetToPreset(): LayoutActionResult
 }
 
 /** Props every block instance receives. */
