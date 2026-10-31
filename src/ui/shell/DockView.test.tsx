@@ -9,6 +9,8 @@ import type {
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import en from '../../../locale/en.json'
+import zh from '../../../locale/zh.json'
 import { activateBlock } from '../../lib/layout-ops.ts'
 import type { BlockRegistration } from '../../client/services/block-registry.ts'
 import type { BlockFailure } from '../../client/services/entry-errors.ts'
@@ -61,12 +63,14 @@ function renderDock(
     failures,
     onRetry,
     wrapSession,
+    translate = t,
   }: {
     language?: string
     actions?: DockViewProps['actions']
     failures?: ReadonlyMap<string, BlockFailure>
     onRetry?: (blockId: string) => void
     wrapSession?: DockViewProps['wrapSession']
+    translate?: WebuiTranslate
   } = {},
 ) {
   const renderBlock = vi.fn<DockViewProps['renderBlock']>((meta, instance) => (
@@ -77,7 +81,7 @@ function renderDock(
       snapshot={{ layout, blocks }}
       actions={actions}
       renderBlock={renderBlock}
-      t={t}
+      t={translate}
       language={language}
       {...(failures === undefined ? {} : { failures })}
       {...(onRetry === undefined ? {} : { onRetry })}
@@ -501,5 +505,42 @@ describe('DockView block layout actions', () => {
     fireEvent.pointerUp(separator, { pointerId: 1, clientX: 110 })
     expect(beginResize).toHaveBeenCalledTimes(1)
     expect(endResize).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('DockView close button names', () => {
+  /** Copy from the real dictionaries, interpolating `{name}` placeholders like the host does. */
+  const translateIn = (dictionary: Record<string, string>) =>
+    ((key: string, params: Record<string, unknown> = {}) =>
+      (dictionary[key] ?? key).replace(/\{(\w+)\}/g, (match, name: string) =>
+        name in params ? String(params[name]) : match,
+      )) as unknown as WebuiTranslate
+  const hello = registration('hello', { title: { en: 'Hello', zh: '你好' } })
+  const bye = registration('bye', { title: { en: 'Bye', zh: '再见' } })
+
+  it('A1 the close button is named after the tab title in each language', () => {
+    renderDock(layoutOf(pane(0, ['hello'])), [hello], { language: 'en', translate: translateIn(en) })
+    expect(screen.getByRole('button', { name: 'Close tab: Hello' })).not.toBeNull()
+    cleanup()
+
+    renderDock(layoutOf(pane(0, ['hello'])), [hello], { language: 'zh-CN', translate: translateIn(zh) })
+    expect(screen.getByRole('button', { name: '关闭标签：你好' })).not.toBeNull()
+  })
+
+  it('A2 two closable tabs in one pane have different close button names, and each closes only its own tab', () => {
+    const { actions } = renderDock(layoutOf(pane(0, ['hello'], ['bye'])), [hello, bye], {
+      language: 'en',
+      translate: translateIn(en),
+    })
+
+    const names = screen
+      .getAllByRole('button', { name: /^Close tab/ })
+      .map((button) => button.getAttribute('aria-label'))
+    expect(names).toHaveLength(2)
+    expect(new Set(names).size).toBe(2)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close tab: Bye' }))
+    expect(actions.close).toHaveBeenCalledTimes(1)
+    expect(actions.close).toHaveBeenCalledWith(expect.objectContaining({ blockId: 'bye' }))
   })
 })
