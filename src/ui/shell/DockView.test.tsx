@@ -5,7 +5,10 @@ import type {
   BlockLayoutActions,
   BlockMeta,
   BlockTarget,
+  LayoutActionResult,
   LayoutNode,
+  LayoutView,
+  LocalizedText,
   LayoutSize,
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
@@ -16,6 +19,7 @@ import { activateBlock } from '../../lib/layout-ops.ts'
 import type { BlockRegistration } from '../../client/services/block-registry.ts'
 import type { BlockFailure } from '../../client/services/entry-errors.ts'
 import type { WebuiTranslate } from '../../client/types.ts'
+import { tabKey } from '../../client/services/layout-controller.ts'
 import { DockView, type DockViewProps } from './DockView.tsx'
 
 const t = ((key: string) => key) as WebuiTranslate
@@ -48,6 +52,14 @@ function row(children: LayoutNode[], sizes: LayoutSize[]): LayoutNode {
   return { kind: 'split', axis: 'row', children, sizes }
 }
 
+/** A view that reports an empty, quiet layout: enough for a dock that only passes it on. */
+const idleView: LayoutView = {
+  getSnapshot: () => layoutOf(null),
+  subscribe: () => () => {},
+  isOpen: () => false,
+  isActive: () => false,
+}
+
 function makeActions(): BlockLayoutActions {
   return { open: vi.fn(), close: vi.fn(), activate: vi.fn(), resize: vi.fn(), resetToPreset: vi.fn() }
 }
@@ -65,6 +77,8 @@ function renderDock(
     onRetry,
     wrapSession,
     translate = t,
+    titles,
+    view = idleView,
   }: {
     language?: string
     actions?: DockViewProps['actions']
@@ -72,6 +86,8 @@ function renderDock(
     onRetry?: (blockId: string) => void
     wrapSession?: DockViewProps['wrapSession']
     translate?: WebuiTranslate
+    titles?: ReadonlyMap<string, LocalizedText>
+    view?: LayoutView
   } = {},
 ) {
   const renderBlock = vi.fn<DockViewProps['renderBlock']>((meta, instance) => (
@@ -79,11 +95,12 @@ function renderDock(
   ))
   render(
     <DockView
-      snapshot={{ layout, blocks }}
+      snapshot={{ layout, blocks, ...(titles === undefined ? {} : { titles }) }}
       actions={actions}
       renderBlock={renderBlock}
       t={translate}
       language={language}
+      view={view}
       {...(failures === undefined ? {} : { failures })}
       {...(onRetry === undefined ? {} : { onRetry })}
       {...(wrapSession === undefined ? {} : { wrapSession })}
@@ -150,12 +167,16 @@ describe('DockView', () => {
       contentId: '',
       active: true,
       layout: expect.any(Object),
+      tab: expect.any(Object),
+      view: expect.any(Object),
     })
     expect(renderBlock).toHaveBeenCalledWith(blocks[1]?.meta, {
       blockId: 'b',
       contentId: '',
       active: false,
       layout: expect.any(Object),
+      tab: expect.any(Object),
+      view: expect.any(Object),
     })
     expect(renderBlock.mock.calls.map(([meta]) => meta.id)).not.toContain('ghost')
     for (const [, instance] of renderBlock.mock.calls) expect(instance).not.toHaveProperty('ctx')
@@ -171,6 +192,39 @@ describe('DockView', () => {
     expect(within(first as HTMLElement).queryByTestId('block-b')).toBeNull()
     expect(within(second as HTMLElement).getByTestId('block-b')).not.toBeNull()
     expect(within(second as HTMLElement).queryByTestId('block-a')).toBeNull()
+  })
+
+  it('A4 every renderBlock call gets the view prop of the dock as instance.view', () => {
+    const view: LayoutView = { ...idleView }
+    const { renderBlock } = renderDock(layoutOf(pane(0, ['a'], ['b'])), [registration('a'), registration('b')], {
+      view,
+    })
+
+    expect(renderBlock).toHaveBeenCalledTimes(2)
+    for (const [, instance] of renderBlock.mock.calls) expect(instance.view).toBe(view)
+  })
+
+  it('A4 the view stays the same object in the instance props across a rerender', () => {
+    const view: LayoutView = { ...idleView }
+    const blocks = [registration('a'), registration('b')]
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    const dock = (layout: WebuiLayout) => (
+      <DockView
+        snapshot={{ layout, blocks }}
+        actions={makeActions()}
+        renderBlock={renderBlock}
+        t={t}
+        language="en"
+        view={view}
+      />
+    )
+    const { rerender } = render(dock(layoutOf(pane(0, ['a'], ['b']))))
+    renderBlock.mockClear()
+
+    rerender(dock(layoutOf(pane(1, ['a'], ['b']))))
+
+    expect(renderBlock).toHaveBeenCalled()
+    for (const [, instance] of renderBlock.mock.calls) expect(instance.view).toBe(view)
   })
 
   it('A4 a closable:false tab has no close button, and the others close and activate with their target', () => {
@@ -209,7 +263,10 @@ describe('DockView', () => {
       const [layout, setLayout] = useState(layoutOf(pane(0, ['a'], ['b'])))
       const actions: BlockLayoutActions = {
         ...makeActions(),
-        activate: (target) => setLayout((current) => activateBlock(current, target)),
+        activate: (target) => {
+          setLayout((current) => activateBlock(current, target))
+          return { ok: true }
+        },
       }
       return (
         <DockView
@@ -218,6 +275,7 @@ describe('DockView', () => {
           renderBlock={(meta) => <Counter label={meta.id} />}
           t={t}
           language="en"
+          view={idleView}
         />
       )
     }
@@ -413,6 +471,7 @@ describe('DockView splitters', () => {
           renderBlock={(meta) => <Probe id={meta.id} />}
           t={t}
           language="en"
+          view={idleView}
         />
       )
     }
@@ -456,7 +515,14 @@ describe('DockView block layout actions', () => {
     const blocks = [registration('a')]
     const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
     const dock = (layout: WebuiLayout) => (
-      <DockView snapshot={{ layout, blocks }} actions={actions} renderBlock={renderBlock} t={t} language="en" />
+      <DockView
+        snapshot={{ layout, blocks }}
+        actions={actions}
+        renderBlock={renderBlock}
+        t={t}
+        language="en"
+        view={idleView}
+      />
     )
     const { rerender } = render(dock(layoutOf(pane(0, ['a']))))
     rerender(dock(layoutOf(pane(0, ['a']))))
@@ -486,23 +552,58 @@ describe('DockView block layout actions', () => {
     expect(actions.resetToPreset).toHaveBeenCalledTimes(1)
   })
 
+  it('A4 calling a method of the block layout returns what the same-named method of props.actions returned', () => {
+    const results = {
+      open: { ok: false, reason: 'unknown-block' },
+      close: { ok: false, reason: 'not-closable' },
+      activate: { ok: false, reason: 'no-such-tab' },
+      resize: { ok: false, reason: 'not-in-split' },
+      resetToPreset: { ok: true },
+    } as const satisfies Record<keyof BlockLayoutActions, LayoutActionResult>
+    const actions = {
+      open: vi.fn(() => results.open),
+      close: vi.fn(() => results.close),
+      activate: vi.fn(() => results.activate),
+      resize: vi.fn(() => results.resize),
+      resetToPreset: vi.fn(() => results.resetToPreset),
+      resizeSplit: vi.fn(),
+      beginResize: vi.fn(),
+      endResize: vi.fn(),
+    }
+    const { renderBlock } = renderDock(layoutOf(pane(0, ['a'])), [registration('a')], { actions })
+    const layout = renderBlock.mock.calls[0]?.[1].layout
+    if (layout === undefined) throw new Error('renderBlock was not called')
+    const target = { blockId: 'a' }
+
+    expect(layout.open(target)).toBe(results.open)
+    expect(layout.close(target)).toBe(results.close)
+    expect(layout.activate(target)).toBe(results.activate)
+    expect(layout.resize(target, { fr: 2 })).toBe(results.resize)
+    expect(layout.resetToPreset()).toBe(results.resetToPreset)
+  })
+
   it('A1 this-bound methods of a class instance work through props.layout, each called with the instance as this and the original arguments', () => {
     class ThisActions implements BlockLayoutActions {
       calls: unknown[][] = []
-      open(target: BlockTarget): void {
+      open(target: BlockTarget): LayoutActionResult {
         this.calls.push(['open', this, target])
+        return { ok: true }
       }
-      close(target: BlockTarget): void {
+      close(target: BlockTarget): LayoutActionResult {
         this.calls.push(['close', this, target])
+        return { ok: true }
       }
-      activate(target: BlockTarget): void {
+      activate(target: BlockTarget): LayoutActionResult {
         this.calls.push(['activate', this, target])
+        return { ok: true }
       }
-      resize(target: BlockTarget, size: LayoutSize): void {
+      resize(target: BlockTarget, size: LayoutSize): LayoutActionResult {
         this.calls.push(['resize', this, target, size])
+        return { ok: true }
       }
-      resetToPreset(): void {
+      resetToPreset(): LayoutActionResult {
         this.calls.push(['resetToPreset', this])
+        return { ok: true }
       }
       resizeSplit(): void {}
       beginResize(): void {}
@@ -533,20 +634,25 @@ describe('DockView block layout actions', () => {
   it('A5 this-bound method shorthands of an object literal work through props.layout, each called with that object as this and the original arguments', () => {
     const actions: DockViewProps['actions'] & { calls: unknown[][] } = {
       calls: [],
-      open(target: BlockTarget): void {
+      open(target: BlockTarget): LayoutActionResult {
         this.calls.push(['open', this, target])
+        return { ok: true }
       },
-      close(target: BlockTarget): void {
+      close(target: BlockTarget): LayoutActionResult {
         this.calls.push(['close', this, target])
+        return { ok: true }
       },
-      activate(target: BlockTarget): void {
+      activate(target: BlockTarget): LayoutActionResult {
         this.calls.push(['activate', this, target])
+        return { ok: true }
       },
-      resize(target: BlockTarget, size: LayoutSize): void {
+      resize(target: BlockTarget, size: LayoutSize): LayoutActionResult {
         this.calls.push(['resize', this, target, size])
+        return { ok: true }
       },
-      resetToPreset(): void {
+      resetToPreset(): LayoutActionResult {
         this.calls.push(['resetToPreset', this])
+        return { ok: true }
       },
       resizeSplit(): void {},
       beginResize(): void {},
@@ -600,7 +706,14 @@ describe('DockView block layout actions', () => {
     const blocks = [registration('a'), registration('b')]
     const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
     const dock = (layout: WebuiLayout) => (
-      <DockView snapshot={{ layout, blocks }} actions={actions} renderBlock={renderBlock} t={t} language="en" />
+      <DockView
+        snapshot={{ layout, blocks }}
+        actions={actions}
+        renderBlock={renderBlock}
+        t={t}
+        language="en"
+        view={idleView}
+      />
     )
     const { rerender } = render(dock(layoutOf(row([pane(0, ['a']), pane(0, ['b'])], [px(200), FR]))))
     const separator = screen.getByRole('separator', { name: 'dock.splitter' })
@@ -650,5 +763,146 @@ describe('DockView close button names', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Close tab: Bye' }))
     expect(actions.close).toHaveBeenCalledTimes(1)
     expect(actions.close).toHaveBeenCalledWith(expect.objectContaining({ blockId: 'bye' }))
+  })
+
+  describe('tab titles', () => {
+    const note = registration('n', { multiInstance: true, title: { en: 'Note', zh: '笔记' } })
+    const one = { blockId: 'n', contentId: 'one' }
+    const two = { blockId: 'n', contentId: 'two' }
+    const titlesOf = (...entries: [typeof one, LocalizedText][]) =>
+      new Map(entries.map(([ref, title]) => [tabKey(ref), title] as const))
+
+    it('A4 two tabs of one multi-instance block show their own titles, and each close button carries its own', () => {
+      const titles = titlesOf([one, { en: 'a.txt' }], [two, { en: 'b.txt' }])
+      renderDock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), [note], {
+        language: 'en',
+        translate: translateIn(en),
+        titles,
+      })
+
+      expect(screen.getByRole('tab', { name: 'a.txt' })).not.toBeNull()
+      expect(screen.getByRole('tab', { name: 'b.txt' })).not.toBeNull()
+      expect(screen.queryByRole('tab', { name: 'Note' })).toBeNull()
+      expect(screen.getByRole('button', { name: 'Close tab: a.txt' })).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Close tab: b.txt' })).not.toBeNull()
+    })
+
+    it('A4 a tab title follows the language, any language tag included', () => {
+      const titles = titlesOf([one, { en: 'a.txt', zh: '甲.txt', fr: 'fichier-a' }])
+      const layout = layoutOf(pane(0, ['n', 'one']))
+      renderDock(layout, [note], { language: 'zh-CN', translate: translateIn(zh), titles })
+      expect(screen.getByRole('tab', { name: '甲.txt' })).not.toBeNull()
+      expect(screen.getByRole('button', { name: '关闭标签：甲.txt' })).not.toBeNull()
+      cleanup()
+
+      renderDock(layout, [note], { language: 'fr-FR', translate: translateIn(en), titles })
+      expect(screen.getByRole('tab', { name: 'fichier-a' })).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Close tab: fichier-a' })).not.toBeNull()
+    })
+
+    it('A4 a tab without a tab title shows the block title', () => {
+      renderDock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), [note], {
+        language: 'en',
+        translate: translateIn(en),
+        titles: titlesOf([one, { en: 'a.txt' }]),
+      })
+
+      expect(screen.getByRole('tab', { name: 'a.txt' })).not.toBeNull()
+      expect(screen.getByRole('tab', { name: 'Note' })).not.toBeNull()
+      expect(screen.getByRole('button', { name: 'Close tab: Note' })).not.toBeNull()
+    })
+
+    it('A4 the error card of a failed tab is titled with the tab title', () => {
+      const failures = new Map<string, BlockFailure>([['n', { blockId: 'n', error: new Error('n exploded') }]])
+      renderDock(layoutOf(pane(0, ['n', 'one'])), [note], {
+        language: 'en',
+        failures,
+        titles: titlesOf([one, { en: 'a.txt' }]),
+      })
+
+      const card = screen.getByRole('alert')
+      expect(card.textContent).toContain('n exploded')
+      expect(card.textContent).toContain('a.txt')
+      expect(card.textContent).not.toContain('Note')
+    })
+  })
+})
+
+describe('DockView tab handle', () => {
+  const blocks = [registration('n', { multiInstance: true })]
+  const dock = (layout: WebuiLayout, actions: DockViewProps['actions'], renderBlock: DockViewProps['renderBlock']) => (
+    <DockView
+      snapshot={{ layout, blocks }}
+      actions={actions}
+      renderBlock={renderBlock}
+      t={t}
+      language="en"
+      view={idleView}
+    />
+  )
+  const handleOf = (renderBlock: ReturnType<typeof vi.fn<DockViewProps['renderBlock']>>, contentId: string) => {
+    const call = renderBlock.mock.calls.find(([, instance]) => instance.contentId === contentId)
+    if (call === undefined) throw new Error(`no render for ${contentId}`)
+    return call[1].tab
+  }
+
+  it('A5 tab.setTitle forwards to actions.setTabTitle with the ref of that tab', () => {
+    const setTabTitle = vi.fn()
+    const actions = { ...makeActions(), setTabTitle }
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    render(dock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+
+    handleOf(renderBlock, 'one').setTitle({ en: 'a.txt' })
+    expect(setTabTitle).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'one' }, { en: 'a.txt' })
+    handleOf(renderBlock, 'two').setTitle(null)
+    expect(setTabTitle).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'two' }, null)
+    expect(setTabTitle).toHaveBeenCalledTimes(2)
+  })
+
+  it('A5 tab.setCloseGuard forwards to actions.setCloseGuard with the ref of that tab', () => {
+    const setCloseGuard = vi.fn()
+    const actions = { ...makeActions(), setCloseGuard }
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    render(dock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+    const guard = () => false
+
+    handleOf(renderBlock, 'one').setCloseGuard(guard)
+    expect(setCloseGuard).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'one' }, guard)
+    handleOf(renderBlock, 'two').setCloseGuard(null)
+    expect(setCloseGuard).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'two' }, null)
+    expect(setCloseGuard).toHaveBeenCalledTimes(2)
+  })
+
+  it('A5 the × button of a tab calls actions.close for its ref, and a vetoed close leaves the tab rendered', () => {
+    const close = vi.fn<BlockLayoutActions['close']>(() => ({ ok: false, reason: 'vetoed' }))
+    const actions = { ...makeActions(), close }
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>((_meta, instance) => (
+      <div data-testid={`tab-${instance.contentId}`} />
+    ))
+    render(dock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'dock.tab.close' })[1] as HTMLElement)
+
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledWith(expect.objectContaining({ blockId: 'n', contentId: 'two' }))
+    expect(screen.getAllByRole('button', { name: 'dock.tab.close' })).toHaveLength(2)
+    expect(screen.getByTestId('tab-one')).not.toBeNull()
+    expect(screen.getByTestId('tab-two')).not.toBeNull()
+  })
+
+  it('A5 the same ref gets the same tab object across rerenders, another ref another one', () => {
+    const actions = { ...makeActions(), setTabTitle: vi.fn() }
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    const { rerender } = render(dock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+    const firstOne = handleOf(renderBlock, 'one')
+    const firstTwo = handleOf(renderBlock, 'two')
+    renderBlock.mockClear()
+
+    rerender(dock(layoutOf(pane(1, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+
+    expect(renderBlock).toHaveBeenCalled()
+    expect(handleOf(renderBlock, 'one')).toBe(firstOne)
+    expect(handleOf(renderBlock, 'two')).toBe(firstTwo)
+    expect(firstOne).not.toBe(firstTwo)
   })
 })

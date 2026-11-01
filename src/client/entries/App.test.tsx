@@ -2,7 +2,13 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentType, ReactNode } from 'react'
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
-import type { BlockInstanceProps, BlockMeta, LayoutNode, WebuiLayout } from '@lllzt/dsh-webui-framework/contract'
+import type {
+  BlockInstanceProps,
+  BlockMeta,
+  LayoutNode,
+  LayoutView,
+  WebuiLayout,
+} from '@lllzt/dsh-webui-framework/contract'
 import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest'
 import { emptyLayout } from '../../lib/layout.ts'
 import type { BlockErrorCardProps } from '../../ui/shell/ErrorBoundary.tsx'
@@ -33,7 +39,7 @@ function pane(...ids: string[]): LayoutNode {
 
 function snapshotOf(root: LayoutNode | null, blocks: BlockRegistration[]): DockSnapshot {
   const layout: WebuiLayout = root === null ? emptyLayout() : { version: 1, root, activePane: [] }
-  return { layout, blocks }
+  return { layout, blocks, titles: new Map() }
 }
 
 interface SessionProviderProps {
@@ -64,6 +70,12 @@ function renderApp(
     hasSession ? <>{children}</> : <>{empty?.() ?? null}</>,
   )
   const retryBlock = vi.fn()
+  const layoutView: LayoutView = {
+    getSnapshot: () => snapshot.layout,
+    subscribe: () => () => {},
+    isOpen: () => false,
+    isActive: () => false,
+  }
   const RootEntry = App as unknown as ComponentType<Record<string, unknown>>
   render(
     <RootEntry
@@ -73,11 +85,12 @@ function renderApp(
       useErrors={<S,>(select: (value: ReadonlyMap<string, BlockFailure>) => S) => select(failures)}
       retryBlock={retryBlock}
       dockActions={dockActions}
+      layoutView={layoutView}
       renderSlot={renderSlot}
       SessionProvider={SessionProvider}
     />,
   )
-  return { renderSlot, SessionProvider, dockActions, retryBlock }
+  return { renderSlot, SessionProvider, dockActions, retryBlock, layoutView }
 }
 
 describe('App', () => {
@@ -105,12 +118,26 @@ describe('App', () => {
 
     expect(renderSlot).toHaveBeenCalledWith(
       ROOT_KEY,
-      { blockId: 'r1', contentId: '', active: true, layout: expect.any(Object) },
+      {
+        blockId: 'r1',
+        contentId: '',
+        active: true,
+        layout: expect.any(Object),
+        tab: expect.any(Object),
+        view: expect.any(Object),
+      },
       expect.objectContaining({ only: 'r1' }),
     )
     expect(renderSlot).toHaveBeenCalledWith(
       SESSION_KEY,
-      { blockId: 's1', contentId: '', active: false, layout: expect.any(Object) },
+      {
+        blockId: 's1',
+        contentId: '',
+        active: false,
+        layout: expect.any(Object),
+        tab: expect.any(Object),
+        view: expect.any(Object),
+      },
       expect.objectContaining({ only: 's1' }),
     )
     for (const [, owner] of renderSlot.mock.calls) expect(owner).not.toHaveProperty('ctx')
@@ -123,6 +150,14 @@ describe('App', () => {
     const target = { blockId: 'r1', contentId: 'x' }
     layout.open(target)
     expect(dockActions.open).toHaveBeenCalledWith(target)
+  })
+
+  it('A5 every block gets the layoutView the root seat injected as its view', () => {
+    const snapshot = snapshotOf(pane('r1', 's1'), [registration('r1', 'root'), registration('s1', 'session')])
+    const { renderSlot, layoutView } = renderApp(snapshot, { hasSession: true })
+
+    expect(renderSlot).toHaveBeenCalled()
+    for (const [, instance] of renderSlot.mock.calls) expect(instance.view).toBe(layoutView)
   })
 
   it('A1 without a main session the root block still renders and a null root still shows dock.empty', () => {

@@ -1,8 +1,10 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { BlockInstanceProps, LayoutPreset } from '@lllzt/dsh-webui-framework/contract'
 
 export const name = 'hello-block'
+
+let notes = 0
 
 function HelloRoot({ layout }: BlockInstanceProps) {
   return (
@@ -11,6 +13,46 @@ function HelloRoot({ layout }: BlockInstanceProps) {
       <button type="button" onClick={() => layout.open({ blockId: 'hello.session' })}>
         Open the session block
       </button>
+      <button type="button" onClick={() => layout.open({ blockId: 'hello.note', contentId: `n${++notes}` })}>
+        New note
+      </button>
+    </div>
+  )
+}
+
+function HelloNote({ contentId, tab }: BlockInstanceProps) {
+  const k = contentId.replace(/^n/, '')
+  const [unsaved, setUnsaved] = useState(false)
+  const [refused, setRefused] = useState(false)
+
+  useEffect(() => {
+    tab.setTitle({ en: `Note ${k}`, zh: `笔记 ${k}` })
+  }, [tab, k])
+
+  useEffect(() => {
+    if (!unsaved) return
+    tab.setCloseGuard(() => {
+      setRefused(true)
+      return false
+    })
+    return () => tab.setCloseGuard(null)
+  }, [tab, unsaved])
+
+  return (
+    <div style={{ padding: 16, color: 'var(--text)' }}>
+      <p>Note {k}</p>
+      <label>
+        <input
+          type="checkbox"
+          checked={unsaved}
+          onChange={(event) => {
+            setUnsaved(event.target.checked)
+            setRefused(false)
+          }}
+        />
+        Unsaved changes
+      </label>
+      {refused && <p>Close refused: unsaved changes</p>}
     </div>
   )
 }
@@ -66,6 +108,17 @@ export function apply(ctx: Context) {
           defaultSize: { px: 280, min: 200, max: 480 },
         },
         HelloRoot,
+      ),
+      layout.registerBlock(
+        {
+          id: 'hello.note',
+          scope: 'root',
+          priority: 200,
+          title: { zh: '笔记', en: 'Note' },
+          closable: true,
+          multiInstance: true,
+        },
+        HelloNote,
       ),
       layout.registerBlock(
         {
