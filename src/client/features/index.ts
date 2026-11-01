@@ -2,6 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { layout } from './layout.ts'
 import { shell } from './shell.ts'
+import { shortcuts } from './shortcuts.ts'
 import { theme } from './theme.ts'
 
 /**
@@ -17,4 +18,4 @@ export interface WebuiFeature {
   apply(ctx: Context): void
 }
 
-export const FEATURES: readonly WebuiFeature[] = [shell, theme, layout]
+export const FEATURES: readonly WebuiFeature[] = [shell, theme, layout, shortcuts]
