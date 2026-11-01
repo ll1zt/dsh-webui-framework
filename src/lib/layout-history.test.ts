@@ -2,6 +2,7 @@ import type { WebuiLayout } from '@lllzt/dsh-webui-framework/contract'
 import { describe, expect, it } from 'vitest'
 import { EMPTY_LAYOUT_HISTORY, LAYOUT_HISTORY_LIMIT, recordLayout, stepBack, stepForward } from './layout-history.ts'
 import type { LayoutHistory } from './layout-history.ts'
+import { deepFreeze } from '../test/deep-freeze.ts'
 
 const layout = (blockId: string): WebuiLayout => ({
   version: 1,
@@ -9,14 +10,6 @@ const layout = (blockId: string): WebuiLayout => ({
   activePane: [],
 })
 const [A, B, C, D] = ['a', 'b', 'c', 'd'].map(layout) as [WebuiLayout, WebuiLayout, WebuiLayout, WebuiLayout]
-
-function deepFreeze<T>(value: T): T {
-  if (typeof value === 'object' && value !== null) {
-    Object.values(value).forEach(deepFreeze)
-    Object.freeze(value)
-  }
-  return value
-}
 
 describe('layout history', () => {
   it('A1 recordLayout appends before to past and clears future, leaving the input alone', () => {

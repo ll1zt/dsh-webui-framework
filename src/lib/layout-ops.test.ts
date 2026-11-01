@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest'
 import type { LayoutCatalog } from './layout.ts'
 import { emptyLayout } from './layout.ts'
 import { activateBlock, closeBlock, openBlock, resizeBlock } from './layout-ops.ts'
+import { deepFreeze } from '../test/deep-freeze.ts'
 
 const FR: LayoutSize = { fr: 1 }
 const LEFT: LayoutSize = { px: 260, min: 180, max: 480 }
@@ -38,14 +39,6 @@ const layoutOf = (root: LayoutNode | null, activePane: number[] = []): WebuiLayo
   root,
   activePane,
 })
-
-function deepFreeze<T>(value: T): T {
-  if (typeof value === 'object' && value !== null) {
-    Object.values(value).forEach(deepFreeze)
-    Object.freeze(value)
-  }
-  return value
-}
 
 const BLOCKS = catalog(
   meta('a'),
