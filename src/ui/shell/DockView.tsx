@@ -10,6 +10,7 @@ import type {
   LayoutPane,
   LayoutSize,
   LayoutSplit,
+  LayoutView,
   LocalizedText,
 } from '@lllzt/dsh-webui-framework/contract'
 import type { BlockRegistration } from '../../client/services/block-registry.ts'
@@ -31,6 +32,8 @@ export interface DockViewProps {
   actions: BlockLayoutActions &
     Partial<Pick<DockActions, 'resizeSplit' | 'beginResize' | 'endResize' | 'setTabTitle' | 'setCloseGuard'>>
   renderBlock: (meta: BlockMeta, instance: BlockInstanceProps) => ReactNode
+  /** The read-only layout view every block instance gets as `props.view`. */
+  view: LayoutView
   t: WebuiTranslate
   language: string
   /** Blocks whose entry failed to render; their tab panel shows an error card instead of the block. */
@@ -108,7 +111,7 @@ function titleOf(meta: BlockMeta, tabTitle: LocalizedText | undefined, language:
 }
 
 function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNode {
-  const { actions, layout, renderBlock, t, language, metas, titles, failures, onRetry, wrapSession } = dock
+  const { actions, layout, renderBlock, view, t, language, metas, titles, failures, onRetry, wrapSession } = dock
   // Tabs keep their index in the layout, so `active` still lines up when an unregistered block is skipped.
   const tabs = pane.tabs.flatMap((ref, index) => {
     const meta = metas.get(ref.blockId)
@@ -123,6 +126,7 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
         active,
         layout,
         tab: tabHandleOf(actions, ref),
+        view,
       })
       return meta.scope === 'session' && wrapSession !== undefined ? wrapSession(body) : body
     }

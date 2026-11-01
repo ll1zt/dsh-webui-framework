@@ -5,10 +5,13 @@ import type {
   BlockRef,
   BlockTarget,
   CloseGuard,
+  Disposer,
   LayoutActionRejection,
   LayoutActionResult,
   LayoutNode,
+  LayoutPane,
   LayoutSize,
+  LayoutView,
   LocalizedText,
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
@@ -74,11 +77,46 @@ function resizeSplitAt(layout: WebuiLayout, path: readonly number[], sizes: read
   return { ...layout, root: next }
 }
 
+/** Whether two plain data trees (objects, arrays, primitives) hold the same data. */
+function sameData(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => sameData(item, b[i]))
+  }
+  if (typeof a === 'object' && typeof b === 'object' && a !== null && b !== null) {
+    const left = a as Record<string, unknown>
+    const right = b as Record<string, unknown>
+    const keys = Object.keys(left)
+    return (
+      keys.length === Object.keys(right).length &&
+      keys.every((key) => Object.hasOwn(right, key) && sameData(left[key], right[key]))
+    )
+  }
+  return Object.is(a, b)
+}
+
+/**
+ * `value` deeply frozen. A node that is not frozen yet is copied rather than frozen in place, so an object a contributor
+ * handed over (a preset's layout) never becomes frozen behind its back; a subtree that is frozen all the way down is kept.
+ */
+function frozenDeep<T>(value: T): T {
+  if (typeof value !== 'object' || value === null) return value
+  if (Array.isArray(value)) {
+    const items: unknown[] = value.map(frozenDeep)
+    const kept = Object.isFrozen(value) && items.every((item, i) => item === (value as unknown[])[i])
+    return (kept ? value : Object.freeze(items)) as T
+  }
+  const source = value as Record<string, unknown>
+  const entries = Object.entries(source).map(([key, item]) => [key, frozenDeep(item)] as const)
+  const kept = Object.isFrozen(value) && entries.every(([key, item]) => item === source[key])
+  return (kept ? value : Object.freeze(Object.fromEntries(entries))) as T
+}
+
 /** The layout of one page, as an observable snapshot the injected `useDock` hook reads. */
 export class LayoutController {
   readonly #registry: BlockRegistry
   readonly #listeners = new Set<() => void>()
   readonly #actionListeners = new Set<(layout: WebuiLayout) => void>()
+  readonly #viewListeners = new Set<() => void>()
   #snapshot: DockSnapshot
   #settled = false
   /** True until the layout is first set by an action or a saved layout: until then it follows the presets. */
@@ -165,10 +203,30 @@ export class LayoutController {
     },
   }
 
+  /** The read-only face of the layout handed to every block; one object for the controller's whole life. */
+  readonly view: LayoutView = {
+    getSnapshot: () => this.#snapshot.layout,
+    subscribe: (listener): Disposer => {
+      this.#viewListeners.add(listener)
+      return () => {
+        this.#viewListeners.delete(listener)
+      }
+    },
+    isOpen: (target) => this.#tabOf(target) !== undefined,
+    isActive: (target) => {
+      const tab = this.#tabOf(target)
+      return tab !== undefined && tab.pane.tabs[tab.pane.active] === tab.ref
+    },
+  }
+
   constructor(registry: BlockRegistry) {
     this.#registry = registry
     const blocks = registry.blocks()
-    this.#snapshot = { layout: this.#adopt(undefined, this.#catalogOf(blocks)), blocks, titles: new Map() }
+    this.#snapshot = {
+      layout: frozenDeep(this.#adopt(undefined, this.#catalogOf(blocks))),
+      blocks,
+      titles: new Map(),
+    }
     registry.subscribe(() => {
       const next = registry.blocks()
       const catalog = this.#catalogOf(next)
@@ -231,6 +289,19 @@ export class LayoutController {
     this.#publish({ layout: this.#adopt(saved, this.#catalogOf(blocks)), blocks, titles: this.#snapshot.titles })
   }
 
+  /** The tab `target` names in the current layout, with the pane holding it; undefined when it is not open or its block is not registered. */
+  #tabOf(target: BlockTarget): { ref: BlockRef; pane: LayoutPane } | undefined {
+    const { blocks, layout } = this.#snapshot
+    const catalog = this.#catalogOf(blocks)
+    if (layout.root === null || !catalog.blocks.has(target.blockId)) return undefined
+    const path = tabPathOf(layout, target, catalog)
+    const pane = path === undefined ? undefined : nodeAt(layout.root, path)
+    if (pane?.kind !== 'pane') return undefined
+    const { blockId, contentId } = this.#singled(target, catalog)
+    const ref = pane.tabs.find((tab) => tab.blockId === blockId && tab.contentId === (contentId ?? ''))
+    return ref === undefined ? undefined : { ref, pane }
+  }
+
   #catalogOf(blocks: readonly BlockRegistration[]): LayoutCatalog {
     return { blocks: new Map(blocks.map((block) => [block.meta.id, block.meta])), settled: this.#settled }
   }
@@ -282,21 +353,32 @@ export class LayoutController {
     const next = change(layout, this.#catalogOf(blocks))
     if (next === layout) return
     this.#publish({ layout: next, blocks, titles })
+    const published = this.#snapshot.layout
     if (deferrable && this.#gesture !== null) return
-    this.#notify(next)
-    if (this.#gesture !== null) this.#gesture = next
+    this.#notify(published)
+    if (this.#gesture !== null) this.#gesture = published
   }
 
   #notify(layout: WebuiLayout): void {
     for (const listener of [...this.#actionListeners]) listener(layout)
   }
 
-  /** Publishes `snapshot`, dropping the titles and close guards of tabs that are no longer in its layout. */
+  /**
+   * Publishes `snapshot`, dropping the titles and close guards of tabs that are no longer in its layout. The layout is
+   * frozen, and a layout holding the data of the current one is replaced by the current object, so the view hears nothing.
+   */
   #publish(snapshot: DockSnapshot): void {
-    const keys = tabKeysOf(snapshot.layout.root)
+    const previous = this.#snapshot.layout
+    const layout = sameData(previous, snapshot.layout) ? previous : frozenDeep(snapshot.layout)
+    const keys = tabKeysOf(layout.root)
     const kept = [...snapshot.titles].filter(([key]) => keys.has(key))
-    this.#snapshot = kept.length === snapshot.titles.size ? snapshot : { ...snapshot, titles: new Map(kept) }
+    this.#snapshot = {
+      ...snapshot,
+      layout,
+      titles: kept.length === snapshot.titles.size ? snapshot.titles : new Map(kept),
+    }
     for (const key of [...this.#guards.keys()]) if (!keys.has(key)) this.#guards.delete(key)
     for (const listener of [...this.#listeners]) listener()
+    if (layout !== previous) for (const listener of [...this.#viewListeners]) listener()
   }
 }
