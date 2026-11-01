@@ -29,6 +29,7 @@ describe('FEATURES', () => {
     expect(featureNamed('shell').inject).toEqual(['slots', 'locale'])
     expect(featureNamed('theme').inject).toEqual(['theme'])
     expect(featureNamed('layout').inject).toEqual(['slots'])
+    expect(featureNamed('shortcuts').inject).toEqual(['locale'])
   })
 })
 
