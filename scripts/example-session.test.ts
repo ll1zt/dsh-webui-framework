@@ -36,26 +36,50 @@ const mountNumber = (text: string | null): number => {
 
 type Target = { blockId: string; contentId?: string }
 
-/** Minimal block props: tab and layout record their calls, view is an empty layout. */
-const fakeProps = (blockId: string, contentId: string) => ({
-  blockId,
-  contentId,
-  active: true,
-  layout: {
-    open: vi.fn((_target: Target) => ({ ok: true })),
-    close: vi.fn((_target: Target) => ({ ok: true })),
-    activate: vi.fn((_target: Target) => ({ ok: true })),
-    move: vi.fn((_target: Target) => ({ ok: true })),
-    split: vi.fn((_target: Target) => ({ ok: true })),
-  },
-  tab: { setTitle: vi.fn((_title: unknown) => {}), setCloseGuard: vi.fn((_guard: (() => boolean) | null) => {}) },
-  view: {
-    getSnapshot: () => ({ version: 1, root: null, activePane: [] }),
-    subscribe: () => () => {},
-    isOpen: (_target: Target) => false,
-    isActive: (_target: Target) => false,
-  },
-})
+/** Minimal block props: tab and layout record their calls, view is an empty layout whose canUndo / canRedo setCan flips. */
+const fakeProps = (blockId: string, contentId: string) => {
+  const can = { undo: false, redo: false }
+  const listeners = new Set<() => void>()
+  const unsubscribe = vi.fn()
+  return {
+    blockId,
+    contentId,
+    active: true,
+    layout: {
+      open: vi.fn((_target: Target) => ({ ok: true })),
+      close: vi.fn((_target: Target) => ({ ok: true })),
+      activate: vi.fn((_target: Target) => ({ ok: true })),
+      move: vi.fn((_target: Target) => ({ ok: true })),
+      split: vi.fn((_target: Target) => ({ ok: true })),
+      resize: vi.fn((_target: Target, _size: unknown) => ({ ok: true })),
+      resetToPreset: vi.fn(() => ({ ok: true })),
+      undo: vi.fn(() => ({ ok: true })),
+      redo: vi.fn(() => ({ ok: true })),
+    },
+    tab: { setTitle: vi.fn((_title: unknown) => {}), setCloseGuard: vi.fn((_guard: (() => boolean) | null) => {}) },
+    view: {
+      getSnapshot: () => ({ version: 1, root: null, activePane: [] }),
+      subscribe: (listener: () => void) => {
+        listeners.add(listener)
+        return () => {
+          unsubscribe()
+          listeners.delete(listener)
+        }
+      },
+      isOpen: (_target: Target) => false,
+      isActive: (_target: Target) => false,
+      canUndo: () => can.undo,
+      canRedo: () => can.redo,
+      /** Test control: set what canUndo / canRedo report, then call every recorded listener. */
+      setCan: (next: { undo?: boolean; redo?: boolean }) => {
+        can.undo = next.undo ?? can.undo
+        can.redo = next.redo ?? can.redo
+        for (const listener of [...listeners]) listener()
+      },
+      unsubscribe,
+    },
+  }
+}
 
 describe('example session block', () => {
   it('A1 loads the example client by a static import', () => {
@@ -127,5 +151,59 @@ describe('example session block', () => {
     expect(typeof lastGuard()).toBe('function')
     view.unmount()
     expect(lastGuard()).toBeNull()
+  })
+})
+
+describe('example root undo / redo', () => {
+  const others = ['open', 'close', 'activate', 'move', 'split', 'resize', 'resetToPreset'] as const
+
+  it('A1 the root block shows Undo and Redo, disabled while the view says there is nothing to undo or redo', async () => {
+    const HelloRoot = await registeredBlock('hello.root')
+    const props = fakeProps('hello.root', '')
+    render(createElement(HelloRoot, props))
+    const undo = screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement
+    const redo = screen.getByRole('button', { name: 'Redo' }) as HTMLButtonElement
+    expect([undo.disabled, redo.disabled]).toEqual([true, true])
+
+    act(() => props.view.setCan({ undo: true }))
+    expect([undo.disabled, redo.disabled]).toEqual([false, true])
+
+    act(() => props.view.setCan({ undo: false, redo: true }))
+    expect([undo.disabled, redo.disabled]).toEqual([true, false])
+
+    act(() => props.view.setCan({ undo: true }))
+    expect([undo.disabled, redo.disabled]).toEqual([false, false])
+  })
+
+  it('A2 Undo calls layout.undo once and Redo calls layout.redo once, nothing else', async () => {
+    const HelloRoot = await registeredBlock('hello.root')
+    const props = fakeProps('hello.root', '')
+    props.view.setCan({ undo: true, redo: true })
+    render(createElement(HelloRoot, props))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    expect(props.layout.undo).toHaveBeenCalledTimes(1)
+    expect(props.layout.redo).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Redo' }))
+    expect(props.layout.undo).toHaveBeenCalledTimes(1)
+    expect(props.layout.redo).toHaveBeenCalledTimes(1)
+    for (const name of others) expect(props.layout[name]).not.toHaveBeenCalled()
+  })
+
+  it('A3 re-renders through view.subscribe without remounting, and unsubscribes on unmount', async () => {
+    const HelloRoot = await registeredBlock('hello.root')
+    const props = fakeProps('hello.root', '')
+    const view = render(createElement(HelloRoot, props))
+    const undo = screen.getByRole('button', { name: 'Undo' }) as HTMLButtonElement
+    expect(undo.disabled).toBe(true)
+
+    act(() => props.view.setCan({ undo: true }))
+    expect(screen.getByRole('button', { name: 'Undo' })).toBe(undo)
+    expect(undo.disabled).toBe(false)
+
+    expect(props.view.unsubscribe).not.toHaveBeenCalled()
+    view.unmount()
+    expect(props.view.unsubscribe).toHaveBeenCalled()
   })
 })
