@@ -6,6 +6,24 @@ import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../examples/hello-block/src/client.tsx'
 
+/** The host's Modal cannot load under vitest, so a stand-in records its props and renders a dialog while open. */
+const modalProps = vi.hoisted(() => [] as Record<string, unknown>[])
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', async () => {
+  const { createElement } = await import('react')
+  return {
+    Modal: (props: Record<string, unknown>) => {
+      modalProps.push(props)
+      if (!props.open) return null
+      return createElement(
+        'div',
+        { role: 'dialog', 'aria-label': props.title as string },
+        props.children as never,
+        createElement('button', { type: 'button', onClick: props.onClose as () => void }, props.closeLabel as string),
+      )
+    },
+  }
+})
+
 afterEach(cleanup)
 
 /** Runs the example's apply against a fake ctx and returns the component it registers for `blockId`. */
@@ -162,6 +180,29 @@ describe('example session block', () => {
     expect(typeof lastGuard()).toBe('function')
     view.unmount()
     expect(lastGuard()).toBeNull()
+  })
+})
+
+describe('example root dialog', () => {
+  it('A1 Open dialog shows a Hello dialog Modal and its onClose removes it', async () => {
+    modalProps.length = 0
+    const HelloRoot = await registeredBlock('hello.root')
+    render(createElement(HelloRoot, fakeProps('hello.root', '')))
+    for (const name of ['New note', 'Undo', 'Redo']) expect(screen.getByRole('button', { name })).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(modalProps.some((props) => props.open === true)).toBe(false)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open dialog' }))
+
+    expect(modalProps.at(-1)).toMatchObject({ open: true, title: 'Hello dialog', closeLabel: 'Close' })
+    expect(screen.getByRole('dialog', { name: 'Hello dialog' })).toBeTruthy()
+
+    act(() => (modalProps.at(-1)?.onClose as () => void)())
+
+    expect(screen.queryByRole('dialog')).toBeNull()
+    for (const name of ['Open dialog', 'New note', 'Undo', 'Redo']) {
+      expect(screen.getByRole('button', { name })).toBeTruthy()
+    }
   })
 })
 

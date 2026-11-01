@@ -168,6 +168,32 @@ function UndoButton({ layout, view }: BlockInstanceProps) {
 
 已知限制：在 Linux 上的浏览器里，宿主只接受 `primary+/`、`primary+Shift+,` 和 `primary+Shift+.` 三个键位，并且把 `primary+Z` 当作保留键，所以上表的七个默认键位全部被宿主拒绝：这些命令不会出现在宿主的快捷键目录里，每个命令在启动时在控制台告警一次（`[webui-framework] could not register the shortcut …`），页面和其它功能照常工作。要在那里绑定它们，需要宿主自己的改键界面，本框架不提供。
 
+### 浮层与对话框
+
+框架在 `.webui-root` 里声明并渲染 `shell.overlay`（`list`、`root` 作用域），与宿主 `ui-layout` 的同名同形声明一致：按这个名字注册的宿主插件与第三方插件（toast、状态角标等）照常出现，不论在框架声明之前还是之后注册。浮层叠在停靠区上方、不随格子滚动；层本身点击穿透，不挡住下面的操作，它的条目自己接收指针事件。某个条目渲染抛错只影响它自己，停靠区与其它条目照常。
+
+对话框请用宿主的 `Modal`，来自 `@deepseek-ai/dsh-client-ui-primitives`：它挂到 `document.body`，Escape 关闭，关闭后焦点回到打开它的元素。对话框打开时框架的布局快捷键不生效（框架的七个命令不允许任何模态，见上节）。这个包是宿主提供的模块，插件构建时要把它当作宿主模块 `require`，不要打进 bundle；框架契约仍然只用 `import type`，`Modal` 是从宿主取的值，不是从框架取的。
+
+```tsx
+import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
+
+function Opener() {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open dialog
+      </button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Hello dialog" closeLabel="Close">
+        <p>Hello.</p>
+      </Modal>
+    </>
+  )
+}
+```
+
+框架与宿主的 `ui-layout` 都占用 root，两者不能同时启用。
+
 ### 只读的布局视图
 
 `props.view` 是只读的布局视图，没有写方法，改布局要走 `props.layout`：
@@ -178,7 +204,7 @@ function UndoButton({ layout, view }: BlockInstanceProps) {
 - `view.isActive(target)`：该标签是否已打开并且是所在窗格的活动标签；
 - `view.canUndo()` / `view.canRedo()`：`layout.undo()` / `layout.redo()` 此刻有没有步骤可走。
 
-完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块（带「Undo」「Redo」按钮，按 `view.canUndo()` / `view.canRedo()` 启用）、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭，还有一个「Note text」文本框，用来在输入框里试键盘命令）、一个 session 块、一个故意抛错的块和一个预设。示例不进发布包。
+完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块（带「Undo」「Redo」按钮，按 `view.canUndo()` / `view.canRedo()` 启用，还有一个「Open dialog」按钮，用宿主的 `Modal` 弹出对话框）、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭，还有一个「Note text」文本框，用来在输入框里试键盘命令）、一个 session 块、一个故意抛错的块和一个预设。示例不进发布包。
 
 ## 首版不做
 
