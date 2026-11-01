@@ -1,0 +1,157 @@
+name: dsh alpha
+
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '要检查的 @deepseek-ai/dsh 版本，留空则取 alpha 标签'
+        required: false
+        type: string
+
+concurrency:
+  group: dsh-alpha
+  cancel-in-progress: false
+
+jobs:
+  dsh-alpha:
+    runs-on: nixos-server
+    timeout-minutes: 45
+    env:
+      NIX_CONFIG: |
+        tarball-ttl = 2592000
+      npm_config_registry: https://registry.npmmirror.com
+      npm_config_audit: 'false'
+      npm_config_fund: 'false'
+    steps:
+      - name: Checkout
+        env:
+          CI_REPOSITORY_VAR: ${{ vars.CI_REPOSITORY }}
+          CI_SHA: ${{ github.sha }}
+          CI_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+        run: |
+          set -eu
+          askpass="$(mktemp)"
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'ASKPASS'
+          #!/bin/sh
+          case "$1" in
+            Username*) printf '%s' "${CI_TOKEN:-}" ;;
+            Password*) printf '' ;;
+          esac
+          ASKPASS
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
+          repo="${CI_REPOSITORY:-${CI_REPOSITORY_VAR:-${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git}}"
+          git clone "$repo" source
+          git -C source fetch origin "$CI_SHA"
+          git -C source -c advice.detachedHead=false checkout --detach FETCH_HEAD
+          test "$(git -C source rev-parse HEAD)" = "$CI_SHA"
+          test -n "$CI_TOKEN"
+          ! grep -qF "$CI_TOKEN" source/.git/config
+
+      - name: Bump
+        id: bump
+        working-directory: source
+        env:
+          DSH_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -eu
+          output="$(nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-bump.ts ${DSH_VERSION:+--version "$DSH_VERSION"}')"
+          line="$(printf '%s\n' "$output" | tail -n 1)"
+          echo "$line"
+          if printf '%s' "$line" | grep -q '"changed":true'; then
+            version="$(printf '%s' "$line" | sed -n 's/.*"target":"\([^"]*\)".*/\1/p')"
+            test -n "$version"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            echo "version=$version" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "没有新版本"
+          fi
+
+      - name: npm install
+        id: install
+        if: steps.bump.outputs.changed == 'true'
+        working-directory: source
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c 'npm install --include=dev --ignore-scripts'
+
+      - name: gate
+        id: gate
+        if: steps.bump.outputs.changed == 'true'
+        working-directory: source
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c 'npm run gate'
+
+      - name: host-compat
+        id: compat
+        if: steps.bump.outputs.changed == 'true'
+        working-directory: source
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c 'node scripts/host-compat.ts'
+
+      - name: Push branch
+        if: success() && steps.bump.outputs.changed == 'true'
+        working-directory: source
+        env:
+          DSH_VERSION: ${{ steps.bump.outputs.version }}
+          CI_TOKEN: ${{ secrets.DSH_ALPHA_TOKEN || github.token }}
+        run: |
+          set -eu
+          askpass="$(mktemp)"
+          trap 'rm -f "$askpass"' EXIT
+          cat > "$askpass" <<'ASKPASS'
+          #!/bin/sh
+          case "$1" in
+            Username*) printf '%s' "${CI_TOKEN:-}" ;;
+            Password*) printf '' ;;
+          esac
+          ASKPASS
+          chmod 700 "$askpass"
+          export GIT_ASKPASS="$askpass" GIT_TERMINAL_PROMPT=0
+          test -n "$CI_TOKEN"
+          git checkout -B "dsh-alpha/$DSH_VERSION"
+          git add package.json package-lock.json
+          git -c user.name=dsh-alpha -c user.email=dsh-alpha@noreply.invalid commit -m "chore: 升级到 dsh $DSH_VERSION"
+          git push --force origin "dsh-alpha/$DSH_VERSION"
+
+      - name: Open upgrade PR
+        if: success() && steps.bump.outputs.changed == 'true'
+        working-directory: source
+        env:
+          DSH_VERSION: ${{ steps.bump.outputs.version }}
+          DSH_ALPHA_TOKEN: ${{ secrets.DSH_ALPHA_TOKEN || github.token }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-report.ts --pass "$DSH_VERSION"'
+
+      - name: Report failure
+        if: failure() && steps.bump.outputs.changed == 'true' && (steps.install.outcome == 'failure' || steps.gate.outcome == 'failure' || steps.compat.outcome == 'failure')
+        working-directory: source
+        env:
+          DSH_VERSION: ${{ steps.bump.outputs.version }}
+          INSTALL_OUTCOME: ${{ steps.install.outcome }}
+          GATE_OUTCOME: ${{ steps.gate.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
+          DSH_ALPHA_TOKEN: ${{ secrets.DSH_ALPHA_TOKEN || github.token }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          set -eu
+          if [ "$INSTALL_OUTCOME" = failure ]; then
+            export DSH_FAILED_STEP=install
+          elif [ "$GATE_OUTCOME" = failure ]; then
+            export DSH_FAILED_STEP=gate
+          else
+            export DSH_FAILED_STEP=host-compat
+          fi
+          nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-report.ts --fail "$DSH_FAILED_STEP" "$DSH_VERSION" "$RUN_URL"'
