@@ -4,14 +4,21 @@ import type {
   BlockMeta,
   BlockRef,
   BlockTarget,
+  CloseGuard,
+  Disposer,
+  LayoutActionRejection,
+  LayoutActionResult,
   LayoutNode,
+  LayoutPane,
   LayoutSize,
+  LayoutView,
   LocalizedText,
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
 import { chooseLayout, clampSize, nodeAt, replaceAt, resolveLayout, type LayoutCatalog } from '../../lib/layout.ts'
-import { activateBlock, closeBlock, openBlock, resizeBlock } from '../../lib/layout-ops.ts'
+import { activateBlock, closeBlock, openBlock, resizeBlock, tabPathOf } from '../../lib/layout-ops.ts'
 import type { BlockRegistration, BlockRegistry } from './block-registry.ts'
+import { LOG_PREFIX } from './log-prefix.ts'
 
 /** The key of a tab in `DockSnapshot.titles`. */
 export function tabKey(ref: BlockRef): string {
@@ -39,6 +46,12 @@ export interface DockActions extends BlockLayoutActions {
    * and when the title is unchanged. Not a user action: `onAction` listeners hear nothing and nothing is saved.
    */
   setTabTitle(ref: BlockRef, title: LocalizedText | null): void
+  /**
+   * Sets the guard of the tab `ref` (replacing any earlier one), or removes it with `null`. Ignored when `ref` is no tab
+   * in the layout. Only `close` and `resetToPreset` ask it; it is dropped with the tab. Not a user action: nothing is
+   * published, `onAction` listeners hear nothing and nothing is saved.
+   */
+  setCloseGuard(ref: BlockRef, guard: CloseGuard | null): void
 }
 
 /** Every tab key in the layout. */
@@ -64,25 +77,99 @@ function resizeSplitAt(layout: WebuiLayout, path: readonly number[], sizes: read
   return { ...layout, root: next }
 }
 
+/** Whether two plain data trees (objects, arrays, primitives) hold the same data. */
+function sameData(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((item, i) => sameData(item, b[i]))
+  }
+  if (typeof a === 'object' && typeof b === 'object' && a !== null && b !== null) {
+    const left = a as Record<string, unknown>
+    const right = b as Record<string, unknown>
+    const keys = Object.keys(left)
+    return (
+      keys.length === Object.keys(right).length &&
+      keys.every((key) => Object.hasOwn(right, key) && sameData(left[key], right[key]))
+    )
+  }
+  return Object.is(a, b)
+}
+
+/**
+ * `value` deeply frozen. A node that is not frozen yet is copied rather than frozen in place, so an object a contributor
+ * handed over (a preset's layout) never becomes frozen behind its back; a subtree that is frozen all the way down is kept.
+ */
+function frozenDeep<T>(value: T): T {
+  if (typeof value !== 'object' || value === null) return value
+  if (Array.isArray(value)) {
+    const items: unknown[] = value.map(frozenDeep)
+    const kept = Object.isFrozen(value) && items.every((item, i) => item === (value as unknown[])[i])
+    return (kept ? value : Object.freeze(items)) as T
+  }
+  const source = value as Record<string, unknown>
+  const entries = Object.entries(source).map(([key, item]) => [key, frozenDeep(item)] as const)
+  const kept = Object.isFrozen(value) && entries.every(([key, item]) => item === source[key])
+  return (kept ? value : Object.freeze(Object.fromEntries(entries))) as T
+}
+
 /** The layout of one page, as an observable snapshot the injected `useDock` hook reads. */
 export class LayoutController {
   readonly #registry: BlockRegistry
   readonly #listeners = new Set<() => void>()
   readonly #actionListeners = new Set<(layout: WebuiLayout) => void>()
+  readonly #viewListeners = new Set<() => void>()
   #snapshot: DockSnapshot
   #settled = false
   /** True until the layout is first set by an action or a saved layout: until then it follows the presets. */
   #following = true
   /** The layout `onAction` listeners last heard during the open resize gesture (the one at its start until an action notifies); null outside a gesture. */
   #gesture: WebuiLayout | null = null
+  /** Close guards by `tabKey`; only tabs in the layout have one. */
+  #guards = new Map<string, CloseGuard>()
 
   readonly actions: DockActions = {
-    open: (target) => this.#update((layout, catalog) => openBlock(layout, target, catalog)),
-    close: (target) => this.#update((layout, catalog) => closeBlock(layout, target, catalog)),
-    activate: (target) => this.#update((layout, catalog) => activateBlock(layout, this.#singled(target, catalog))),
+    open: (target) =>
+      this.#act(
+        (_layout, catalog) => (catalog.blocks.has(target.blockId) ? undefined : 'unknown-block'),
+        (layout, catalog) => openBlock(layout, target, catalog),
+      ),
+    close: (target) =>
+      this.#act(
+        (layout, catalog) => {
+          const meta = catalog.blocks.get(target.blockId)
+          if (meta === undefined) return 'unknown-block'
+          if (meta.closable === false) return 'not-closable'
+          if (tabPathOf(layout, target, catalog) === undefined) return 'no-such-tab'
+          return this.#allows(this.#guardKey(target, catalog)) ? undefined : 'vetoed'
+        },
+        (layout, catalog) => closeBlock(layout, target, catalog),
+      ),
+    activate: (target) =>
+      this.#act(
+        (layout, catalog) => {
+          if (!catalog.blocks.has(target.blockId)) return 'unknown-block'
+          return tabPathOf(layout, target, catalog) === undefined ? 'no-such-tab' : undefined
+        },
+        (layout, catalog) => activateBlock(layout, this.#singled(target, catalog)),
+      ),
     resize: (target, size: LayoutSize) =>
-      this.#update((layout, catalog) => resizeBlock(layout, this.#singled(target, catalog), size)),
-    resetToPreset: () => this.#update((_layout, catalog) => this.#adopt(undefined, catalog)),
+      this.#act(
+        (layout, catalog) => {
+          if (!catalog.blocks.has(target.blockId)) return 'unknown-block'
+          const path = tabPathOf(layout, target, catalog)
+          if (path === undefined) return 'no-such-tab'
+          return path.length === 0 ? 'not-in-split' : undefined
+        },
+        (layout, catalog) => resizeBlock(layout, this.#singled(target, catalog), size),
+      ),
+    resetToPreset: () =>
+      this.#act(
+        (layout, catalog) => {
+          const kept = tabKeysOf(this.#adopt(undefined, catalog).root)
+          for (const key of tabKeysOf(layout.root)) if (!kept.has(key) && !this.#allows(key)) return 'vetoed'
+          return undefined
+        },
+        (_layout, catalog) => this.#adopt(undefined, catalog),
+      ),
     resizeSplit: (path, sizes) => this.#update((layout) => resizeSplitAt(layout, path, sizes), true),
     beginResize: () => {
       this.#gesture ??= this.#snapshot.layout
@@ -108,12 +195,38 @@ export class LayoutController {
       else next.set(key, { ...title })
       this.#publish({ layout, blocks, titles: next })
     },
+    setCloseGuard: (ref, guard) => {
+      const { blocks, layout } = this.#snapshot
+      const key = this.#guardKey(ref, this.#catalogOf(blocks))
+      if (guard === null) this.#guards.delete(key)
+      else if (tabKeysOf(layout.root).has(key)) this.#guards.set(key, guard)
+    },
+  }
+
+  /** The read-only face of the layout handed to every block; one object for the controller's whole life. */
+  readonly view: LayoutView = {
+    getSnapshot: () => this.#snapshot.layout,
+    subscribe: (listener): Disposer => {
+      this.#viewListeners.add(listener)
+      return () => {
+        this.#viewListeners.delete(listener)
+      }
+    },
+    isOpen: (target) => this.#tabOf(target) !== undefined,
+    isActive: (target) => {
+      const tab = this.#tabOf(target)
+      return tab !== undefined && tab.pane.tabs[tab.pane.active] === tab.ref
+    },
   }
 
   constructor(registry: BlockRegistry) {
     this.#registry = registry
     const blocks = registry.blocks()
-    this.#snapshot = { layout: this.#adopt(undefined, this.#catalogOf(blocks)), blocks, titles: new Map() }
+    this.#snapshot = {
+      layout: frozenDeep(this.#adopt(undefined, this.#catalogOf(blocks))),
+      blocks,
+      titles: new Map(),
+    }
     registry.subscribe(() => {
       const next = registry.blocks()
       const catalog = this.#catalogOf(next)
@@ -176,6 +289,19 @@ export class LayoutController {
     this.#publish({ layout: this.#adopt(saved, this.#catalogOf(blocks)), blocks, titles: this.#snapshot.titles })
   }
 
+  /** The tab `target` names in the current layout, with the pane holding it; undefined when it is not open or its block is not registered. */
+  #tabOf(target: BlockTarget): { ref: BlockRef; pane: LayoutPane } | undefined {
+    const { blocks, layout } = this.#snapshot
+    const catalog = this.#catalogOf(blocks)
+    if (layout.root === null || !catalog.blocks.has(target.blockId)) return undefined
+    const path = tabPathOf(layout, target, catalog)
+    const pane = path === undefined ? undefined : nodeAt(layout.root, path)
+    if (pane?.kind !== 'pane') return undefined
+    const { blockId, contentId } = this.#singled(target, catalog)
+    const ref = pane.tabs.find((tab) => tab.blockId === blockId && tab.contentId === (contentId ?? ''))
+    return ref === undefined ? undefined : { ref, pane }
+  }
+
   #catalogOf(blocks: readonly BlockRegistration[]): LayoutCatalog {
     return { blocks: new Map(blocks.map((block) => [block.meta.id, block.meta])), settled: this.#settled }
   }
@@ -190,26 +316,69 @@ export class LayoutController {
     return meta !== undefined && !meta.multiInstance ? { blockId: target.blockId, contentId: '' } : target
   }
 
+  /** The `tabKey` of the tab `target` names: a single-instance block has no contentId of its own. */
+  #guardKey(target: BlockTarget, catalog: LayoutCatalog): string {
+    const { blockId, contentId } = this.#singled(target, catalog)
+    return tabKey({ blockId, contentId: contentId ?? '' })
+  }
+
+  /** Whether the guard of tab `key` lets it close; a guard that throws vetoes, and warns. */
+  #allows(key: string): boolean {
+    const guard = this.#guards.get(key)
+    if (guard === undefined) return true
+    try {
+      return guard()
+    } catch (error) {
+      console.warn(
+        `${LOG_PREFIX} the close guard of block "${key.split('\u0000')[0]}" threw, so the close is vetoed: ${String(error)}`,
+      )
+      return false
+    }
+  }
+
+  /** Judges the request against the current layout first: a rejection touches nothing, an accepted one is applied by `#update`. */
+  #act(
+    judge: (layout: WebuiLayout, catalog: LayoutCatalog) => LayoutActionRejection | undefined,
+    change: (layout: WebuiLayout, catalog: LayoutCatalog) => WebuiLayout,
+  ): LayoutActionResult {
+    const reason = judge(this.#snapshot.layout, this.#catalogOf(this.#snapshot.blocks))
+    if (reason !== undefined) return { ok: false, reason }
+    this.#update(change)
+    return { ok: true }
+  }
+
   #update(change: (layout: WebuiLayout, catalog: LayoutCatalog) => WebuiLayout, deferrable = false): void {
     this.#following = false
     const { blocks, layout, titles } = this.#snapshot
     const next = change(layout, this.#catalogOf(blocks))
     if (next === layout) return
     this.#publish({ layout: next, blocks, titles })
+    const published = this.#snapshot.layout
     if (deferrable && this.#gesture !== null) return
-    this.#notify(next)
-    if (this.#gesture !== null) this.#gesture = next
+    this.#notify(published)
+    if (this.#gesture !== null) this.#gesture = published
   }
 
   #notify(layout: WebuiLayout): void {
     for (const listener of [...this.#actionListeners]) listener(layout)
   }
 
-  /** Publishes `snapshot`, dropping the titles of tabs that are no longer in its layout. */
+  /**
+   * Publishes `snapshot`, dropping the titles and close guards of tabs that are no longer in its layout. The layout is
+   * frozen, and a layout holding the data of the current one is replaced by the current object, so the view hears nothing.
+   */
   #publish(snapshot: DockSnapshot): void {
-    const keys = tabKeysOf(snapshot.layout.root)
+    const previous = this.#snapshot.layout
+    const layout = sameData(previous, snapshot.layout) ? previous : frozenDeep(snapshot.layout)
+    const keys = tabKeysOf(layout.root)
     const kept = [...snapshot.titles].filter(([key]) => keys.has(key))
-    this.#snapshot = kept.length === snapshot.titles.size ? snapshot : { ...snapshot, titles: new Map(kept) }
+    this.#snapshot = {
+      ...snapshot,
+      layout,
+      titles: kept.length === snapshot.titles.size ? snapshot.titles : new Map(kept),
+    }
+    for (const key of [...this.#guards.keys()]) if (!keys.has(key)) this.#guards.delete(key)
     for (const listener of [...this.#listeners]) listener()
+    if (layout !== previous) for (const listener of [...this.#viewListeners]) listener()
   }
 }

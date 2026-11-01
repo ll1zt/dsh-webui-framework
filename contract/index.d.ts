@@ -100,13 +100,60 @@ export interface BlockTarget {
   contentId?: string
 }
 
+/**
+ * Why a layout action did nothing:
+ * - `unknown-block`: no block is registered under the target's blockId.
+ * - `not-closable`: the block is registered with `closable: false`.
+ * - `no-such-tab`: the block is registered but the layout has no tab for the target.
+ * - `not-in-split`: the tab sits in the layout's root pane, so no split gives it a size to change.
+ * - `vetoed`: a tab's close guard refused the close, or the reset that would drop that tab.
+ */
+export type LayoutActionRejection = 'unknown-block' | 'not-closable' | 'no-such-tab' | 'not-in-split' | 'vetoed'
+
+/**
+ * What a layout action reports, synchronously. `ok: true` means the request was accepted, even when the layout
+ * already looked that way (opening an open tab, activating the active one); a rejection changes nothing
+ * and is not announced to `onAction` listeners.
+ */
+export type LayoutActionResult = { readonly ok: true } | { readonly ok: false; readonly reason: LayoutActionRejection }
+
 /** Layout operations a block instance may ask for. */
 export interface BlockLayoutActions {
-  open(target: BlockTarget): void
-  close(target: BlockTarget): void
-  activate(target: BlockTarget): void
-  resize(target: BlockTarget, size: LayoutSize): void
-  resetToPreset(): void
+  /** Opens the block's tab, or activates it when open. Rejected with `unknown-block`. */
+  open(target: BlockTarget): LayoutActionResult
+  /** Closes the tab. Rejected with `unknown-block`, then `not-closable`, then `no-such-tab`, then `vetoed` by the tab's close guard. */
+  close(target: BlockTarget): LayoutActionResult
+  /** Activates the tab. Rejected with `unknown-block`, then `no-such-tab`. */
+  activate(target: BlockTarget): LayoutActionResult
+  /** Sizes the split slot holding the tab. Rejected with `unknown-block`, then `no-such-tab`, then `not-in-split`. */
+  resize(target: BlockTarget, size: LayoutSize): LayoutActionResult
+  /**
+   * Re-adopts the first preset. Rejected with `vetoed` (and nothing changes) when a tab that is open but absent from
+   * that preset has a close guard that refuses; the guards of tabs the preset keeps are not asked.
+   */
+  resetToPreset(): LayoutActionResult
+}
+
+/**
+ * A read-only view of the layout, for blocks that need to know what is open. It has no write method: change the layout
+ * through `BlockInstanceProps.layout`.
+ */
+export interface LayoutView {
+  /**
+   * The current layout. The same object while the layout does not change (so it suits `useSyncExternalStore`), and deeply
+   * frozen. A new tab title or a change of the registered blocks that leaves the layout as it is returns the same object.
+   */
+  getSnapshot(): WebuiLayout
+  /**
+   * Calls `listener` once after each change of the layout object, whatever caused it: a layout action, a repair after
+   * blocks (un)register, a loaded layout or the registry settling. A change of the block list alone that leaves the layout
+   * as it is calls nobody. The returned disposer stops the listening.
+   */
+  subscribe(listener: () => void): Disposer
+  /** Whether the layout has the tab `target` names. A single-instance block ignores `contentId`; `contentId` defaults to `''`; an unregistered block is never open. */
+  isOpen(target: BlockTarget): boolean
+  /** Whether the tab `target` names is open and is the active tab of its pane. */
+  isActive(target: BlockTarget): boolean
 }
 
 /** Props every block instance receives. */
@@ -117,6 +164,8 @@ export interface BlockInstanceProps {
   layout: BlockLayoutActions
   /** This tab's own handle; the same object for the same tab across renders. */
   tab: BlockTabHandle
+  /** A read-only view of the layout; the same object for every block and every render. */
+  view: LayoutView
 }
 
 /** What a block instance can do to its own tab. */
@@ -127,7 +176,18 @@ export interface BlockTabHandle {
    * and a tab's title is dropped when it leaves the layout. It is not a user action and is not saved.
    */
   setTitle(title: LocalizedText | null): void
+  /**
+   * Sets this tab's close guard, replacing any earlier one; `null` removes it. The guard is asked synchronously when
+   * the tab is about to be closed (a `close` action or the tab's × button) and when `resetToPreset` would drop the tab:
+   * `false` vetoes, `true` lets it go. A guard that throws vetoes too, and is logged once with a warning. Nothing else
+   * asks it: a tab leaving because its block unregisters, its plugin unloads or the layout is repaired is not
+   * vetoable. Ignored while the tab is not in the layout; the guard is dropped when the tab leaves the layout.
+   */
+  setCloseGuard(guard: CloseGuard | null): void
 }
+
+/** Returns `false` to veto closing the tab it guards. */
+export type CloseGuard = () => boolean
 
 export type BlockComponent = ComponentType<BlockInstanceProps>
 

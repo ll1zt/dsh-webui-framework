@@ -9,8 +9,8 @@ export interface PackViolation {
   reason: 'missing' | 'forbidden'
 }
 
-/** Entries the plugin cannot boot without: the manifest, both entry points and the host patch. */
-const REQUIRED_FILES = ['package.json', 'lib/index.js', 'lib/client.js', 'cordis.patch.yml'] as const
+/** Entries the plugin cannot boot without: the manifest, both entry points, the host patch and the changelog. */
+const REQUIRED_FILES = ['package.json', 'lib/index.js', 'lib/client.js', 'cordis.patch.yml', 'CHANGELOG.md'] as const
 
 /** Directories holding sources, tooling, docs or dependencies; none of them belongs in the tarball. */
 const FORBIDDEN_DIRS = new Set(['src', 'scripts', 'docs', 'ref', 'node_modules'])

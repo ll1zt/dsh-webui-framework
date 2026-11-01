@@ -1,0 +1,5 @@
+- { id: row-a, disabled: true }
+- { id: row-b, disabled: true }
+- insert:
+    - id: webui-framework
+      name: framework-package

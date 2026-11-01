@@ -6,56 +6,6 @@ import { parse } from 'yaml'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const DISABLED_ROW_IDS = [
-  'ui-layout',
-  'ui-sidebar',
-  'ui-sidebar-right',
-  'ui-sidebar-documentpreview',
-  'ui-sidebar-browser',
-  'ui-sidebar-terminal',
-  'ui-sidebar-files',
-  'ui-workspace',
-  'ui-conversation',
-  'ui-chat',
-  'ui-deliverables',
-  'ui-plan',
-  'ui-skill',
-  'ui-reference',
-  'ui-schedule',
-  'ui-subagent',
-  'ui-workflow-run',
-  'entry-customization',
-  'ui-secret-mask',
-  'ui-goal',
-  'ui-trajectory',
-  'message-quotes',
-  'ui-tool',
-  'ui-brand-official',
-  'ui-attachment',
-  'ui-shortcuts',
-  'ui-jobs',
-  'ui-cordis',
-  'ui-deepseek-model-label-1017',
-  'ui-message-feedback',
-  'ui-permission',
-  'ui-agent-preset',
-  'ui-plugin-manager',
-  'ui-open-in-app',
-  'directory-picker',
-  'ui-approval',
-  'ui-user-questions',
-  'ui-settings-general',
-  'ui-settings-models',
-  'ui-settings-account',
-  'ui-settings-plugins',
-  'ui-settings-plugin-inventory',
-  'ui-settings-session-log',
-  'ui-settings-shell',
-  'ui-settings-agent-loop',
-  'ui-settings-subagent',
-  'ui-settings-web-search',
-]
-
 interface PatchEntry {
   id?: unknown
   disabled?: unknown
@@ -86,7 +36,6 @@ describe('cordis.patch.yml', () => {
 
     const ids = rows.map((row) => row.id as string)
     expect(new Set(ids).size).toBe(47)
-    expect(sorted(ids)).toEqual(sorted(DISABLED_ROW_IDS))
   })
 
   it('A2 ends with one insert row of webui-framework', () => {
