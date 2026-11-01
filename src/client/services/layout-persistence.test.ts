@@ -190,6 +190,28 @@ describe('LayoutPersistence writing', () => {
     expect(form.set).toHaveBeenLastCalledWith('layout', controller.getSnapshot().layout)
   })
 
+  it('A5 undo and redo are user actions: each writes the layout it published', async () => {
+    const { controller } = await setup()
+    const { form } = fakeForm('ready')
+    new LayoutPersistence(controller, form).start()
+    controller.actions.open({ blockId: 'b' })
+    const opened = controller.getSnapshot().layout
+    await flush()
+
+    controller.actions.undo()
+    await flush()
+
+    expect(tabsOf(controller)).toEqual(['a'])
+    expect(form.set).toHaveBeenCalledTimes(2)
+    expect(form.set).toHaveBeenLastCalledWith('layout', controller.getSnapshot().layout)
+
+    controller.actions.redo()
+    await flush()
+
+    expect(form.set).toHaveBeenCalledTimes(3)
+    expect(form.set).toHaveBeenLastCalledWith('layout', opened)
+  })
+
   it('A3 adopting the saved layout, the settle re-resolve and a registry change write nothing', async () => {
     const { controller, registry, owner } = await setup()
     const { form } = fakeForm('ready', layoutOf(pane(0, 'a', 'ghost')))

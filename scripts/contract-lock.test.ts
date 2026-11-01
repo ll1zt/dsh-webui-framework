@@ -63,14 +63,14 @@ afterEach(() => {
 })
 
 describe('checkContractLock on the repository', () => {
-  it('A1 returns no problem: lock, package.json and CHANGELOG.md agree on 0.1.0 and the contract hash', () => {
+  it('A1 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.2.0 and the contract hash', () => {
     expect(checkContractLock(ROOT)).toEqual([])
 
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
-    expect(manifest.version).toBe('0.1.0')
-    expect(read(join(ROOT, 'CHANGELOG.md'))).toMatch(/^## 0\.1\.0\b/m)
+    expect(manifest.version).toBe('0.2.0')
+    expect(read(join(ROOT, 'CHANGELOG.md'))).toMatch(/^## 0\.2\.0\b/m)
     expect(JSON.parse(read(join(ROOT, 'contract/lock.json')))).toEqual({
-      version: '0.1.0',
+      version: '0.2.0',
       sha256: contractHash(ROOT),
     })
   })
@@ -100,7 +100,7 @@ describe('checkContractLock on a copy', () => {
 
   it('A2 reports changelog-missing when the CHANGELOG has no heading for the package version', () => {
     const dir = makeCopy()
-    edit(dir, 'CHANGELOG.md', (text) => text.replace(/^## 0\.1\.0.*$/m, '## Unreleased'))
+    edit(dir, 'CHANGELOG.md', (text) => text.replace(/^## \d+\.\d+\.\d+.*$/gm, '## Unreleased'))
     expect(checkContractLock(dir)).toEqual(['changelog-missing'])
   })
 

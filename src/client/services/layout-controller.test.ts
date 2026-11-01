@@ -11,7 +11,7 @@ import type {
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
 import { describe, expect, it, vi } from 'vitest'
-import { emptyLayout } from '../../lib/layout.ts'
+import { emptyLayout, nodeAt } from '../../lib/layout.ts'
 import { createFakeContext } from '../../test/fake-ctx.ts'
 import { BlockRegistry } from './block-registry.ts'
 import { LayoutController, tabKey, type DockSnapshot } from './layout-controller.ts'
@@ -1094,5 +1094,306 @@ describe('LayoutController view', () => {
       view.isOpen({ blockId: 'a', contentId: 'any' }),
       view.isActive({ blockId: 'a', contentId: 'any' }),
     ]).toEqual([true, true])
+  })
+})
+
+describe('LayoutController undo / redo', () => {
+  const split = () => row([pane(0, ['a'], ['b']), pane(0, ['c'])], [px(260), FR])
+  const undoable = () => setup([meta('a'), meta('b'), meta('c'), meta('d')], [presetOf('p', 0, split())])
+  const ok: LayoutActionResult = { ok: true }
+  const empty: LayoutActionResult = { ok: false, reason: 'no-history' }
+
+  const cases: [
+    string,
+    (actions: LayoutController['actions']) => void,
+    ((actions: LayoutController['actions']) => void)?,
+  ][] = [
+    ['open', (actions) => actions.open({ blockId: 'd' })],
+    ['close', (actions) => actions.close({ blockId: 'b' })],
+    ['activate', (actions) => actions.activate({ blockId: 'b' })],
+    ['resize', (actions) => actions.resize({ blockId: 'a' }, px(300))],
+    ['resetToPreset', (actions) => actions.resetToPreset(), (actions) => actions.open({ blockId: 'd' })],
+    ['a keyboard resize of a split', (actions) => actions.resizeSplit([], [px(300), FR])],
+    [
+      'one pointer drag',
+      (actions) => {
+        actions.beginResize()
+        actions.resizeSplit([], [px(280), FR])
+        actions.resizeSplit([], [px(300), FR])
+        actions.resizeSplit([], [px(320), FR])
+        actions.endResize()
+      },
+    ],
+  ]
+
+  it.each(cases)('A1 undo then redo steps back and forth over %s', async (_name, act, prepare) => {
+    const { controller } = await undoable()
+    prepare?.(controller.actions)
+    const before = controller.getSnapshot().layout
+
+    act(controller.actions)
+    const after = controller.getSnapshot().layout
+    expect(after).not.toEqual(before)
+
+    expect(controller.actions.undo()).toEqual(ok)
+    expect(controller.getSnapshot().layout).toEqual(before)
+    expect(controller.actions.redo()).toEqual(ok)
+    expect(controller.getSnapshot().layout).toEqual(after)
+  })
+
+  it('A1 a pointer drag is one step: a single undo restores the size before it, and nothing is left to undo', async () => {
+    const { controller } = await undoable()
+
+    controller.actions.beginResize()
+    controller.actions.resizeSplit([], [px(280), FR])
+    controller.actions.resizeSplit([], [px(300), FR])
+    controller.actions.resizeSplit([], [px(320), FR])
+    controller.actions.endResize()
+    controller.actions.undo()
+
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(260), FR])
+    expect(controller.actions.undo()).toEqual(empty)
+  })
+
+  it('A1 every keyboard resize is a step of its own', async () => {
+    const { controller } = await undoable()
+
+    controller.actions.resizeSplit([], [px(280), FR])
+    controller.actions.resizeSplit([], [px(300), FR])
+    controller.actions.undo()
+
+    expect(sizesOf(controller.getSnapshot())).toEqual([px(280), FR])
+  })
+
+  it('A2 undo and redo on a new controller refuse with no-history and change and tell nobody', async () => {
+    const { controller } = await undoable()
+    const onAction = vi.fn()
+    controller.onAction(onAction)
+    const before = controller.getSnapshot().layout
+
+    expect(controller.actions.undo()).toEqual(empty)
+    expect(controller.actions.redo()).toEqual(empty)
+
+    expect(controller.getSnapshot().layout).toBe(before)
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('A2 undo past the oldest step and redo past the newest step refuse the same way', async () => {
+    const { controller } = await undoable()
+    controller.actions.open({ blockId: 'd' })
+    const onAction = vi.fn()
+    controller.onAction(onAction)
+
+    expect(controller.actions.undo()).toEqual(ok)
+    const oldest = controller.getSnapshot().layout
+    onAction.mockClear()
+    expect(controller.actions.undo()).toEqual(empty)
+    expect(controller.getSnapshot().layout).toBe(oldest)
+
+    expect(controller.actions.redo()).toEqual(ok)
+    const newest = controller.getSnapshot().layout
+    onAction.mockClear()
+    expect(controller.actions.redo()).toEqual(empty)
+    expect(controller.getSnapshot().layout).toBe(newest)
+    expect(onAction).not.toHaveBeenCalled()
+  })
+
+  it('A3 canUndo and canRedo follow the history, and each change tells the view listener once', async () => {
+    const { controller } = await undoable()
+    const { view } = controller
+    const listener = vi.fn()
+    view.subscribe(listener)
+    expect([view.canUndo(), view.canRedo()]).toEqual([false, false])
+
+    controller.actions.open({ blockId: 'd' })
+    expect([view.canUndo(), view.canRedo()]).toEqual([true, false])
+    expect(listener).toHaveBeenCalledTimes(1)
+
+    controller.actions.undo()
+    expect([view.canUndo(), view.canRedo()]).toEqual([false, true])
+    expect(listener).toHaveBeenCalledTimes(2)
+
+    controller.actions.redo()
+    expect([view.canUndo(), view.canRedo()]).toEqual([true, false])
+    expect(listener).toHaveBeenCalledTimes(3)
+
+    controller.actions.undo()
+    controller.actions.close({ blockId: 'b' })
+    expect([view.canUndo(), view.canRedo()]).toEqual([true, false])
+    expect(listener).toHaveBeenCalledTimes(5)
+  })
+
+  it('A3 replaceLayout reading the same layout only clears the history, and the view listener is still told', async () => {
+    const { controller } = await undoable()
+    controller.actions.open({ blockId: 'd' })
+    controller.actions.undo()
+    controller.actions.open({ blockId: 'd' })
+    const listener = vi.fn()
+    controller.view.subscribe(listener)
+    const same = controller.getSnapshot().layout
+
+    controller.replaceLayout(structuredClone(same), true)
+
+    expect(controller.getSnapshot().layout).toBe(same)
+    expect(controller.view.canUndo()).toBe(false)
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('A4 a rejected action, opening an open block, a tab title and a close guard record nothing', async () => {
+    const { controller } = await undoable()
+    const { view } = controller
+
+    expect(controller.actions.close({ blockId: 'nope' })).toEqual({ ok: false, reason: 'unknown-block' })
+    expect(view.canUndo()).toBe(false)
+    controller.actions.open({ blockId: 'a' })
+    expect(view.canUndo()).toBe(false)
+    controller.actions.setTabTitle({ blockId: 'a', contentId: '' }, { en: 'Alpha' })
+    expect(view.canUndo()).toBe(false)
+    controller.actions.setCloseGuard({ blockId: 'a', contentId: '' }, () => true)
+    expect(view.canUndo()).toBe(false)
+    expect(controller.actions.undo()).toEqual(empty)
+  })
+
+  it('A4 following presets, a block registering or unregistering and settle record nothing', async () => {
+    const { controller, registry, owner } = await setup([meta('a'), meta('b')], [presetOf('p', 5, pane(0, ['a']))])
+    const { view } = controller
+
+    registry.registerPreset(owner, presetOf('p0', 1, pane(0, ['b'])))
+    expect(tabsOf(controller.getSnapshot())).toEqual(['b'])
+    const dispose = registry.registerBlock(owner, meta('pin', { closable: false }), Component)
+    expect(view.canUndo()).toBe(false)
+    dispose()
+    expect(view.canUndo()).toBe(false)
+    controller.settle()
+    expect(view.canUndo()).toBe(false)
+
+    controller.actions.open({ blockId: 'a' })
+    controller.actions.undo()
+    const unregisterX = registry.registerBlock(owner, meta('x'), Component)
+    controller.replaceLayout(layoutOf(pane(0, ['b'], ['x'])), true)
+    unregisterX()
+    expect(tabsOf(controller.getSnapshot())).toEqual(['b'])
+    expect([view.canUndo(), view.canRedo()]).toEqual([false, false])
+  })
+
+  it('A4 replaceLayout empties both the undo and the redo history', async () => {
+    const { controller } = await undoable()
+    controller.actions.open({ blockId: 'd' })
+    controller.actions.close({ blockId: 'b' })
+    controller.actions.undo()
+    expect([controller.view.canUndo(), controller.view.canRedo()]).toEqual([true, true])
+
+    controller.replaceLayout(layoutOf(pane(0, ['c'])), true)
+
+    expect([controller.view.canUndo(), controller.view.canRedo()]).toEqual([false, false])
+    expect(controller.actions.undo()).toEqual(empty)
+    expect(controller.actions.redo()).toEqual(empty)
+  })
+
+  it('A5 undo and redo each tell the onAction listener once, with the layout they published', async () => {
+    const { controller } = await undoable()
+    controller.actions.open({ blockId: 'd' })
+    const onAction = vi.fn()
+    controller.onAction(onAction)
+
+    controller.actions.undo()
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect(onAction.mock.calls[0]?.[0]).toBe(controller.getSnapshot().layout)
+
+    controller.actions.redo()
+    expect(onAction).toHaveBeenCalledTimes(2)
+    expect(onAction.mock.calls[1]?.[0]).toBe(controller.getSnapshot().layout)
+  })
+
+  describe('against the blocks registered now', () => {
+    const repairable = async () => {
+      const made = await setup([meta('a'), meta('y')], [presetOf('p', 0, pane(0, ['a']))])
+      made.controller.settle()
+      return made
+    }
+
+    it('A6 undoing to a layout with a block that has since unregistered drops it, keeps closable:false blocks and a valid active pane', async () => {
+      const { controller, registry, owner } = await repairable()
+      const unregisterX = registry.registerBlock(owner, meta('x'), Component)
+      controller.actions.open({ blockId: 'x' })
+      controller.actions.open({ blockId: 'y' })
+      registry.registerBlock(owner, meta('pin', { closable: false }), Component)
+      unregisterX()
+
+      expect(() => controller.actions.undo()).not.toThrow()
+
+      const { layout } = controller.getSnapshot()
+      const flat = JSON.stringify(layout)
+      expect(flat).toContain('"pin"')
+      expect(flat).toContain('"a"')
+      expect(flat).not.toContain('"x"')
+      expect(flat).not.toContain('"y"')
+      expect(nodeAt(rootOf(controller.getSnapshot()), layout.activePane)?.kind).toBe('pane')
+    })
+
+    it('A6 a repaired target that equals the current layout moves the history, answers ok and tells nobody', async () => {
+      const { controller, registry, owner } = await repairable()
+      const unregisterW = registry.registerBlock(owner, meta('w'), Component)
+      controller.actions.open({ blockId: 'w' })
+      unregisterW()
+      const current = controller.getSnapshot().layout
+      const onAction = vi.fn()
+      controller.onAction(onAction)
+
+      expect(controller.actions.undo()).toEqual(ok)
+
+      expect(controller.getSnapshot().layout).toBe(current)
+      expect(controller.view.canUndo()).toBe(false)
+      expect(controller.view.canRedo()).toBe(true)
+      expect(onAction).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('with close guards', () => {
+    const doc: BlockRef = { blockId: 'doc', contentId: '' }
+    const guarded = () => setup([meta('doc'), meta('keep')], [presetOf('p', 0, pane(0, ['keep']))])
+
+    it('A7 undo that would remove a tab its guard refuses is vetoed and changes nothing; without the guard it goes through', async () => {
+      const { controller } = await guarded()
+      controller.actions.open(doc)
+      controller.actions.setCloseGuard(doc, () => false)
+      const onAction = vi.fn()
+      controller.onAction(onAction)
+      const before = controller.getSnapshot().layout
+
+      expect(controller.actions.undo()).toEqual({ ok: false, reason: 'vetoed' })
+
+      expect(controller.getSnapshot().layout).toBe(before)
+      expect([controller.view.canUndo(), controller.view.canRedo()]).toEqual([true, false])
+      expect(onAction).not.toHaveBeenCalled()
+
+      controller.actions.setCloseGuard(doc, null)
+      expect(controller.actions.undo()).toEqual(ok)
+      expect(tabsOf(controller.getSnapshot())).toEqual(['keep'])
+    })
+
+    it('A7 redo that would remove a tab its guard refuses is vetoed in the same way', async () => {
+      const { controller } = await setup([meta('doc'), meta('keep')], [presetOf('p', 0, pane(0, ['keep'], ['doc']))])
+      controller.actions.close(doc)
+      controller.actions.undo()
+      controller.actions.setCloseGuard(doc, () => false)
+      const before = controller.getSnapshot().layout
+
+      expect(controller.actions.redo()).toEqual({ ok: false, reason: 'vetoed' })
+
+      expect(controller.getSnapshot().layout).toBe(before)
+      expect([controller.view.canUndo(), controller.view.canRedo()]).toEqual([false, true])
+    })
+  })
+
+  it('A8 undoing back to the starting layout does not make the layout follow presets again', async () => {
+    const { controller, registry, owner } = await setup([meta('a'), meta('b')], [presetOf('p', 5, pane(0, ['a']))])
+    controller.actions.open({ blockId: 'b' })
+    controller.actions.undo()
+    expect(tabsOf(controller.getSnapshot())).toEqual(['a'])
+
+    registry.registerPreset(owner, presetOf('p0', 1, pane(0, ['b'])))
+
+    expect(tabsOf(controller.getSnapshot())).toEqual(['a'])
   })
 })
