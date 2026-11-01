@@ -33,7 +33,8 @@ const PLUGIN_ID_GUARDS = [
 ]
 const SLOT_KEY_GUARDS = textSelectors('=/^webui[.]/').map((selector) => ({
   selector,
-  message: 'Slot keys (the webui. prefix) are declared only in src/client/types.ts.',
+  message:
+    'webui.-prefixed literals live only in src/client/types.ts (slot keys) and src/lib/layout-commands.ts (layout command ids).',
 }))
 const HTML_SINK_GUARDS = [
   {
@@ -115,14 +116,15 @@ export default tseslint.config(
   },
   {
     files: ['src/**/*.{ts,tsx}'],
-    ignores: ['src/client/types.ts', '**/*.test.*'],
+    ignores: ['src/client/types.ts', 'src/lib/layout-commands.ts', '**/*.test.*'],
     rules: {
       'no-restricted-syntax': ['error', ...PLUGIN_ID_GUARDS, ...SLOT_KEY_GUARDS, ...HTML_SINK_GUARDS],
     },
   },
   {
-    // src/client/types.ts is the one module allowed to name slot keys, so it drops that one guard.
-    files: ['src/client/types.ts'],
+    // src/client/types.ts (slot keys) and src/lib/layout-commands.ts (layout command ids) are the only
+    // modules allowed to write webui.-prefixed literals, so they drop that one guard.
+    files: ['src/client/types.ts', 'src/lib/layout-commands.ts'],
     rules: {
       'no-restricted-syntax': ['error', ...PLUGIN_ID_GUARDS, ...HTML_SINK_GUARDS],
     },

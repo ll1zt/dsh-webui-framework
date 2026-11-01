@@ -19,6 +19,7 @@ import { tabKey, type DockActions, type DockSnapshot } from '../../client/servic
 import type { WebuiTranslate } from '../../client/types.ts'
 import { localizedTextFor } from '../../lib/localized-text.ts'
 import { BlockErrorCard } from './ErrorBoundary.tsx'
+import { PANE_ATTRIBUTE } from './pane-dom.ts'
 import { Splitter } from './Splitter.tsx'
 import './dock.css'
 
@@ -112,7 +113,7 @@ function titleOf(meta: BlockMeta, tabTitle: LocalizedText | undefined, language:
   return localizedTextFor(tabTitle ?? meta.title, language)
 }
 
-function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNode {
+function Pane({ pane, path, dock }: { pane: LayoutPane; path: readonly number[]; dock: DockContext }): ReactNode {
   const { actions, layout, renderBlock, view, t, language, metas, titles, failures, onRetry, wrapSession } = dock
   // Tabs keep their index in the layout, so `active` still lines up when an unregistered block is skipped.
   const tabs = pane.tabs.flatMap((ref, index) => {
@@ -142,7 +143,7 @@ function Pane({ pane, dock }: { pane: LayoutPane; dock: DockContext }): ReactNod
     )
   }
   return (
-    <div className="webui-dock-pane">
+    <div className="webui-dock-pane" {...{ [PANE_ATTRIBUTE]: path.join('.') }}>
       <div className="webui-dock-tabs" role="tablist">
         {tabs.map(({ ref, meta, active }) => (
           <div key={tabKey(ref)} className="webui-dock-tab" data-active={active} role="presentation">
@@ -218,7 +219,7 @@ function Split({ split, path, dock }: { split: LayoutSplit; path: readonly numbe
 }
 
 function Node({ node, path, dock }: { node: LayoutNode; path: readonly number[]; dock: DockContext }): ReactNode {
-  if (node.kind === 'pane') return <Pane pane={node} dock={dock} />
+  if (node.kind === 'pane') return <Pane pane={node} path={path} dock={dock} />
   return <Split split={node} path={path} dock={dock} />
 }
 

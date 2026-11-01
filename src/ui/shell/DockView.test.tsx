@@ -21,6 +21,7 @@ import type { BlockFailure } from '../../client/services/entry-errors.ts'
 import type { WebuiTranslate } from '../../client/types.ts'
 import { tabKey } from '../../client/services/layout-controller.ts'
 import { DockView, type DockViewProps } from './DockView.tsx'
+import { panePathOfElement } from './pane-dom.ts'
 
 const t = ((key: string) => key) as WebuiTranslate
 
@@ -309,6 +310,30 @@ describe('DockView', () => {
     expect(counterA.closest('[hidden]')).toBeNull()
     expect(screen.getByText('a:2')).not.toBeNull()
     expect(screen.getByTestId('counter-b').closest('[hidden]')).not.toBeNull()
+  })
+
+  it('A6 marks every pane with its layout path and the block inside resolves to that path', () => {
+    const inner: LayoutNode = {
+      kind: 'split',
+      axis: 'column',
+      children: [pane(0, ['b']), pane(0, ['c'])],
+      sizes: [FR, FR],
+    }
+    const layout = layoutOf(row([pane(0, ['a']), inner], [px(260), FR]))
+    renderDock(layout, [registration('a'), registration('b'), registration('c')])
+
+    const panes = Array.from(document.querySelectorAll('.webui-dock-pane'))
+    expect(panes.map((element) => element.getAttribute('data-webui-pane'))).toEqual(['0', '1.0', '1.1'])
+    expect(panePathOfElement(screen.getByTestId('block-a'))).toEqual([0])
+    expect(panePathOfElement(screen.getByTestId('block-b'))).toEqual([1, 0])
+    expect(panePathOfElement(screen.getByTestId('block-c'))).toEqual([1, 1])
+  })
+
+  it('A6 gives a single root pane the empty path', () => {
+    renderDock(layoutOf(pane(0, ['a'])), [registration('a')])
+
+    expect(document.querySelector('.webui-dock-pane')?.getAttribute('data-webui-pane')).toBe('')
+    expect(panePathOfElement(screen.getByTestId('block-a'))).toEqual([])
   })
 })
 
