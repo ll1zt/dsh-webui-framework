@@ -1,8 +1,20 @@
 .webui-root {
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100dvh;
   overflow: hidden;
+}
+
+.webui-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.webui-overlay > * {
+  pointer-events: auto;
 }
 
 .webui-error-card,
