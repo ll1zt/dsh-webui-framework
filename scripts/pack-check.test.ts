@@ -9,7 +9,14 @@ import type { PackViolation } from './pack-check.ts'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 
-const COMPLIANT = ['package.json', 'lib/index.js', 'lib/client.js', 'cordis.patch.yml', 'locale/zh.json']
+const COMPLIANT = [
+  'package.json',
+  'lib/index.js',
+  'lib/client.js',
+  'cordis.patch.yml',
+  'CHANGELOG.md',
+  'locale/zh.json',
+]
 
 /** (file, reason) pairs as a sorted set, so a duplicated report is not a failure but a missing one is. */
 const pairs = (violations: readonly PackViolation[]): string[] =>
@@ -38,7 +45,7 @@ const runPackCheck = (dir: string) =>
 const MANIFEST = JSON.stringify({
   name: 'pack-check-fixture',
   version: '1.0.0',
-  files: ['lib', 'locale', 'src', 'cordis.patch.yml'],
+  files: ['lib', 'locale', 'src', 'cordis.patch.yml', 'CHANGELOG.md'],
 })
 
 afterEach(() => {
@@ -52,7 +59,7 @@ describe('checkPackFiles', () => {
   it('A1 reports every required entry a list is missing', () => {
     expect(checkPackFiles(COMPLIANT)).toEqual([])
 
-    for (const required of ['package.json', 'lib/index.js', 'lib/client.js', 'cordis.patch.yml']) {
+    for (const required of ['package.json', 'lib/index.js', 'lib/client.js', 'cordis.patch.yml', 'CHANGELOG.md']) {
       const without = COMPLIANT.filter((file) => file !== required)
       expect({ required, pairs: pairs(checkPackFiles(without)) }).toEqual({
         required,
@@ -61,6 +68,7 @@ describe('checkPackFiles', () => {
     }
 
     expect(pairs(checkPackFiles(['lib/client.js.map', 'locale/zh.json']))).toEqual([
+      'CHANGELOG.md|missing',
       'cordis.patch.yml|missing',
       'lib/client.js|missing',
       'lib/index.js|missing',
@@ -85,6 +93,10 @@ describe('checkPackFiles', () => {
       const violations = checkPackFiles([...COMPLIANT, file])
       expect({ file, pairs: pairs(violations) }).toEqual({ file, pairs: [`${file}|forbidden`] })
     }
+  })
+
+  it('A4 reports a list without CHANGELOG.md as missing exactly that entry', () => {
+    expect(pairs(checkPackFiles(COMPLIANT.filter((file) => file !== 'CHANGELOG.md')))).toEqual(['CHANGELOG.md|missing'])
   })
 
   it('A1 accepts a compliant list that also carries allowed files', () => {
@@ -123,6 +135,7 @@ describe('checkPackFiles', () => {
       'lib/index.js': 'export const apply = () => {}\n',
       'lib/client.js': 'window.__ModuleLoader__.load({})\n',
       'cordis.patch.yml': '- id: pi-ui\n',
+      'CHANGELOG.md': '## 1.0.0\n',
       'locale/zh.json': '{}\n',
     })
 
@@ -177,6 +190,7 @@ describe('published tarball content', () => {
     'lib/client.js.map',
     'contract/index.d.ts',
     'cordis.patch.yml',
+    'CHANGELOG.md',
     'locale/zh.json',
     'locale/en.json',
   ]
@@ -198,5 +212,9 @@ describe('published tarball content', () => {
     expect(paths.filter((path) => path.startsWith('examples/'))).toEqual([])
     expect(paths.filter((path) => path !== 'README.md' && !SHIPPED.includes(path))).toEqual([])
     expect(paths).toEqual(expect.arrayContaining(['package.json', 'contract/index.d.ts', 'cordis.patch.yml']))
+  }, 120_000)
+
+  it('A4 packs CHANGELOG.md', () => {
+    expect(packedPaths()).toContain('CHANGELOG.md')
   }, 120_000)
 })
