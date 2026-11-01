@@ -54,6 +54,17 @@ const TEST_TITLE_GUARDS = [
     message: 'A test title must start with its acceptance item, A<n> followed by a space (e.g. "A1 does x").',
   },
 ]
+// deepFreeze lives once in src/test/deep-freeze.ts; test files import it.
+const DEEP_FREEZE_GUARDS = [
+  {
+    selector: 'FunctionDeclaration[id.name="deepFreeze"]',
+    message: 'deepFreeze is defined once, in src/test/deep-freeze.ts; import it from there.',
+  },
+  {
+    selector: 'VariableDeclarator[id.name="deepFreeze"]',
+    message: 'deepFreeze is defined once, in src/test/deep-freeze.ts; import it from there.',
+  },
+]
 
 export default tseslint.config(
   { ignores: ['lib/', 'examples/*/lib/', 'node_modules/', 'ref/', 'coverage/'] },
@@ -133,7 +144,7 @@ export default tseslint.config(
   },
   {
     files: ['**/*.test.{ts,tsx}'],
-    rules: { 'no-restricted-syntax': ['error', ...TEST_TITLE_GUARDS, ...HTML_SINK_GUARDS] },
+    rules: { 'no-restricted-syntax': ['error', ...TEST_TITLE_GUARDS, ...DEEP_FREEZE_GUARDS, ...HTML_SINK_GUARDS] },
   },
   {
     files: ['scripts/**/*.{js,mjs,ts}', '*.config.{js,ts}'],

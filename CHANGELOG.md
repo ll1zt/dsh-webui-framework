@@ -4,7 +4,7 @@ Every change to `contract/index.d.ts` needs a new version here, a matching `vers
 
 ## 0.2.0
 
-Backwards-compatible addition to 0.1.0: blocks can undo and redo the user's layout changes. The contract changed in the following ways.
+Adds undo and redo of the user's layout changes to 0.1.0. It is not fully backwards compatible: `LayoutActionRejection` gains `no-history`, so a contributor that switches exhaustively over every rejection reason (for example with a `never` check) no longer compiles until it handles `no-history`. The contract changed in the following ways.
 
 - `LayoutActionRejection` gains `no-history`, the reason `undo` and `redo` give when there is no step to take.
 - `props.layout.undo()` and `props.layout.redo()` step back and forth over the user's layout actions and return a `LayoutActionResult`; a step that would drop a tab whose close guard refuses is rejected with `vetoed`.

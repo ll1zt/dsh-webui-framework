@@ -22,6 +22,7 @@ import {
   stepBack,
   stepForward,
   type LayoutHistory,
+  type LayoutHistoryStep,
 } from '../../lib/layout-history.ts'
 import { activateBlock, closeBlock, openBlock, resizeBlock, tabPathOf } from '../../lib/layout-ops.ts'
 import type { BlockRegistration, BlockRegistry } from './block-registry.ts'
@@ -382,9 +383,7 @@ export class LayoutController {
   }
 
   /** Undo or redo: lands on the repaired target unless a close guard vetoes a tab it drops; the layout is announced when its object changed. */
-  #step(
-    take: (history: LayoutHistory, current: WebuiLayout) => { history: LayoutHistory; layout: WebuiLayout } | undefined,
-  ): LayoutActionResult {
+  #step(take: (history: LayoutHistory, current: WebuiLayout) => LayoutHistoryStep | undefined): LayoutActionResult {
     const { blocks, layout, titles } = this.#snapshot
     const step = take(this.#history, layout)
     if (step === undefined) return { ok: false, reason: 'no-history' }
