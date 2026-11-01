@@ -62,4 +62,17 @@ describe('eslint single-exit guards', () => {
     const imported = "import { deepFreeze } from '../test/deep-freeze.ts'\nexport const frozen = deepFreeze({})"
     expect(await restricted(imported, 'src/x.test.ts')).toBe(0)
   })
+
+  it('A8 the webui. literal is exempt in src/lib/layout-commands.ts only', async () => {
+    const literal = "export const id = 'webui.tab.close'"
+    expect(await restricted(literal, 'src/lib/layout-commands.ts')).toBe(0)
+    for (const rel of ['src/lib/other.ts', 'src/client/x.ts']) {
+      expect(await restricted(literal, rel), rel).toBeGreaterThanOrEqual(1)
+    }
+  })
+
+  it('A8 the plugin id guard still applies in src/lib/layout-commands.ts', async () => {
+    const literal = "export const id = '@lllzt/dsh-webui-framework'"
+    expect(await restricted(literal, 'src/lib/layout-commands.ts')).toBeGreaterThanOrEqual(1)
+  })
 })
