@@ -81,7 +81,56 @@ export function apply(ctx: Context) {
 }
 ```
 
-完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块、一个 session 块、一个故意抛错的块和一个预设。示例不进发布包。
+### 多语言文字
+
+`LocalizedText` 是 `{ en: string, [language]: string }`：`en` 必填，其余键是任意语言标签（`zh`、`zh-TW`、`fr`……）。取某个语言的文字时按顺序回落：与当前语言写法完全相同的键，其次是主语言子标签（第一个 `-` 之前、转小写）对应的键，都没有就用 `en`。例如当前语言是 `zh-TW` 而文字只有 `zh` 和 `en`，用 `zh`；只有 `en` 时用 `en`。
+
+### 每个标签的标题
+
+块实例通过 `props.tab` 给自己的标签起名。`tab.setTitle({ en: 'Note 2', zh: '笔记 2' })` 让标签按钮、关闭按钮和出错卡片都用这个标题而不是块的标题；`tab.setTitle(null)` 恢复块的标题。标签不在布局里时调用无效，标签离开布局后标题随之丢弃；标题不是用户操作，也不会被保存。
+
+### 拦下关闭
+
+`tab.setCloseGuard(guard)` 设置本标签的关闭守卫，`guard` 是 `() => boolean`，返回 `false` 否决；`tab.setCloseGuard(null)` 移除。守卫在同步关闭标签时被问到（`close` 动作或标签的 × 按钮），以及 `resetToPreset` 将要丢掉该标签时。守卫抛错也算否决，并会记一条警告。块被注销、插件卸载或布局修复导致标签消失时不问守卫，也无法否决。
+
+```tsx
+useEffect(() => {
+  if (!unsaved) return
+  tab.setCloseGuard(() => false)
+  return () => tab.setCloseGuard(null)
+}, [tab, unsaved])
+```
+
+### 动作结果
+
+`props.layout` 的五个动作 `open`、`close`、`activate`、`resize`、`resetToPreset` 都同步返回 `LayoutActionResult`：成功是 `{ ok: true }`（即使布局本来就是那样，比如打开已打开的标签），失败是 `{ ok: false, reason }`。被拒绝时布局不变，也不会通知 `onAction` 监听者。`reason` 是：
+
+| reason          | 含义                                             |
+| --------------- | ------------------------------------------------ |
+| `unknown-block` | 没有块以目标的 `blockId` 注册                    |
+| `not-closable`  | 块以 `closable: false` 注册                      |
+| `no-such-tab`   | 块已注册，但布局里没有目标对应的标签             |
+| `not-in-split`  | 标签在布局的根窗格里，没有可调整的分栏尺寸       |
+| `vetoed`        | 标签的关闭守卫拒绝了关闭，或拒绝了会丢掉它的重置 |
+
+各动作可能的拒绝原因，按检查顺序：
+
+- `open`：`unknown-block`。
+- `close`：`unknown-block`，然后 `not-closable`，然后 `no-such-tab`，然后 `vetoed`。
+- `activate`：`unknown-block`，然后 `no-such-tab`。
+- `resize`：`unknown-block`，然后 `no-such-tab`，然后 `not-in-split`。
+- `resetToPreset`：只会是 `vetoed`；当某个已打开、而预设里没有的标签的守卫拒绝时整个重置不生效，预设保留的标签的守卫不会被问。
+
+### 只读的布局视图
+
+`props.view` 是只读的布局视图，没有写方法，改布局要走 `props.layout`：
+
+- `view.getSnapshot()`：当前布局，布局不变时是同一个（深冻结）对象，适合 `useSyncExternalStore`；
+- `view.subscribe(listener)`：布局对象每次变化后调用一次 `listener`，返回停止监听的函数；
+- `view.isOpen(target)`：布局里是否有 `target` 对应的标签（单实例块忽略 `contentId`，`contentId` 默认 `''`，未注册的块一律是未打开）；
+- `view.isActive(target)`：该标签是否已打开并且是所在窗格的活动标签。
+
+完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭）、一个 session 块、一个故意抛错的块和一个预设。示例不进发布包。
 
 ## 首版不做
 
