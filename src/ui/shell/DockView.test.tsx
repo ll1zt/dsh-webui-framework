@@ -7,6 +7,7 @@ import type {
   BlockTarget,
   LayoutActionResult,
   LayoutNode,
+  LayoutView,
   LocalizedText,
   LayoutSize,
   WebuiLayout,
@@ -51,6 +52,14 @@ function row(children: LayoutNode[], sizes: LayoutSize[]): LayoutNode {
   return { kind: 'split', axis: 'row', children, sizes }
 }
 
+/** A view that reports an empty, quiet layout: enough for a dock that only passes it on. */
+const idleView: LayoutView = {
+  getSnapshot: () => layoutOf(null),
+  subscribe: () => () => {},
+  isOpen: () => false,
+  isActive: () => false,
+}
+
 function makeActions(): BlockLayoutActions {
   return { open: vi.fn(), close: vi.fn(), activate: vi.fn(), resize: vi.fn(), resetToPreset: vi.fn() }
 }
@@ -69,6 +78,7 @@ function renderDock(
     wrapSession,
     translate = t,
     titles,
+    view = idleView,
   }: {
     language?: string
     actions?: DockViewProps['actions']
@@ -77,6 +87,7 @@ function renderDock(
     wrapSession?: DockViewProps['wrapSession']
     translate?: WebuiTranslate
     titles?: ReadonlyMap<string, LocalizedText>
+    view?: LayoutView
   } = {},
 ) {
   const renderBlock = vi.fn<DockViewProps['renderBlock']>((meta, instance) => (
@@ -89,6 +100,7 @@ function renderDock(
       renderBlock={renderBlock}
       t={translate}
       language={language}
+      view={view}
       {...(failures === undefined ? {} : { failures })}
       {...(onRetry === undefined ? {} : { onRetry })}
       {...(wrapSession === undefined ? {} : { wrapSession })}
@@ -156,6 +168,7 @@ describe('DockView', () => {
       active: true,
       layout: expect.any(Object),
       tab: expect.any(Object),
+      view: expect.any(Object),
     })
     expect(renderBlock).toHaveBeenCalledWith(blocks[1]?.meta, {
       blockId: 'b',
@@ -163,6 +176,7 @@ describe('DockView', () => {
       active: false,
       layout: expect.any(Object),
       tab: expect.any(Object),
+      view: expect.any(Object),
     })
     expect(renderBlock.mock.calls.map(([meta]) => meta.id)).not.toContain('ghost')
     for (const [, instance] of renderBlock.mock.calls) expect(instance).not.toHaveProperty('ctx')
@@ -178,6 +192,39 @@ describe('DockView', () => {
     expect(within(first as HTMLElement).queryByTestId('block-b')).toBeNull()
     expect(within(second as HTMLElement).getByTestId('block-b')).not.toBeNull()
     expect(within(second as HTMLElement).queryByTestId('block-a')).toBeNull()
+  })
+
+  it('A4 every renderBlock call gets the view prop of the dock as instance.view', () => {
+    const view: LayoutView = { ...idleView }
+    const { renderBlock } = renderDock(layoutOf(pane(0, ['a'], ['b'])), [registration('a'), registration('b')], {
+      view,
+    })
+
+    expect(renderBlock).toHaveBeenCalledTimes(2)
+    for (const [, instance] of renderBlock.mock.calls) expect(instance.view).toBe(view)
+  })
+
+  it('A4 the view stays the same object in the instance props across a rerender', () => {
+    const view: LayoutView = { ...idleView }
+    const blocks = [registration('a'), registration('b')]
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    const dock = (layout: WebuiLayout) => (
+      <DockView
+        snapshot={{ layout, blocks }}
+        actions={makeActions()}
+        renderBlock={renderBlock}
+        t={t}
+        language="en"
+        view={view}
+      />
+    )
+    const { rerender } = render(dock(layoutOf(pane(0, ['a'], ['b']))))
+    renderBlock.mockClear()
+
+    rerender(dock(layoutOf(pane(1, ['a'], ['b']))))
+
+    expect(renderBlock).toHaveBeenCalled()
+    for (const [, instance] of renderBlock.mock.calls) expect(instance.view).toBe(view)
   })
 
   it('A4 a closable:false tab has no close button, and the others close and activate with their target', () => {
@@ -228,6 +275,7 @@ describe('DockView', () => {
           renderBlock={(meta) => <Counter label={meta.id} />}
           t={t}
           language="en"
+          view={idleView}
         />
       )
     }
@@ -423,6 +471,7 @@ describe('DockView splitters', () => {
           renderBlock={(meta) => <Probe id={meta.id} />}
           t={t}
           language="en"
+          view={idleView}
         />
       )
     }
@@ -466,7 +515,14 @@ describe('DockView block layout actions', () => {
     const blocks = [registration('a')]
     const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
     const dock = (layout: WebuiLayout) => (
-      <DockView snapshot={{ layout, blocks }} actions={actions} renderBlock={renderBlock} t={t} language="en" />
+      <DockView
+        snapshot={{ layout, blocks }}
+        actions={actions}
+        renderBlock={renderBlock}
+        t={t}
+        language="en"
+        view={idleView}
+      />
     )
     const { rerender } = render(dock(layoutOf(pane(0, ['a']))))
     rerender(dock(layoutOf(pane(0, ['a']))))
@@ -650,7 +706,14 @@ describe('DockView block layout actions', () => {
     const blocks = [registration('a'), registration('b')]
     const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
     const dock = (layout: WebuiLayout) => (
-      <DockView snapshot={{ layout, blocks }} actions={actions} renderBlock={renderBlock} t={t} language="en" />
+      <DockView
+        snapshot={{ layout, blocks }}
+        actions={actions}
+        renderBlock={renderBlock}
+        t={t}
+        language="en"
+        view={idleView}
+      />
     )
     const { rerender } = render(dock(layoutOf(row([pane(0, ['a']), pane(0, ['b'])], [px(200), FR]))))
     const separator = screen.getByRole('separator', { name: 'dock.splitter' })
@@ -768,7 +831,14 @@ describe('DockView close button names', () => {
 describe('DockView tab handle', () => {
   const blocks = [registration('n', { multiInstance: true })]
   const dock = (layout: WebuiLayout, actions: DockViewProps['actions'], renderBlock: DockViewProps['renderBlock']) => (
-    <DockView snapshot={{ layout, blocks }} actions={actions} renderBlock={renderBlock} t={t} language="en" />
+    <DockView
+      snapshot={{ layout, blocks }}
+      actions={actions}
+      renderBlock={renderBlock}
+      t={t}
+      language="en"
+      view={idleView}
+    />
   )
   const handleOf = (renderBlock: ReturnType<typeof vi.fn<DockViewProps['renderBlock']>>, contentId: string) => {
     const call = renderBlock.mock.calls.find(([, instance]) => instance.contentId === contentId)
@@ -787,6 +857,37 @@ describe('DockView tab handle', () => {
     handleOf(renderBlock, 'two').setTitle(null)
     expect(setTabTitle).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'two' }, null)
     expect(setTabTitle).toHaveBeenCalledTimes(2)
+  })
+
+  it('A5 tab.setCloseGuard forwards to actions.setCloseGuard with the ref of that tab', () => {
+    const setCloseGuard = vi.fn()
+    const actions = { ...makeActions(), setCloseGuard }
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>(() => <div />)
+    render(dock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+    const guard = () => false
+
+    handleOf(renderBlock, 'one').setCloseGuard(guard)
+    expect(setCloseGuard).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'one' }, guard)
+    handleOf(renderBlock, 'two').setCloseGuard(null)
+    expect(setCloseGuard).toHaveBeenLastCalledWith({ blockId: 'n', contentId: 'two' }, null)
+    expect(setCloseGuard).toHaveBeenCalledTimes(2)
+  })
+
+  it('A5 the × button of a tab calls actions.close for its ref, and a vetoed close leaves the tab rendered', () => {
+    const close = vi.fn<BlockLayoutActions['close']>(() => ({ ok: false, reason: 'vetoed' }))
+    const actions = { ...makeActions(), close }
+    const renderBlock = vi.fn<DockViewProps['renderBlock']>((_meta, instance) => (
+      <div data-testid={`tab-${instance.contentId}`} />
+    ))
+    render(dock(layoutOf(pane(0, ['n', 'one'], ['n', 'two'])), actions, renderBlock))
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'dock.tab.close' })[1] as HTMLElement)
+
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(close).toHaveBeenCalledWith(expect.objectContaining({ blockId: 'n', contentId: 'two' }))
+    expect(screen.getAllByRole('button', { name: 'dock.tab.close' })).toHaveLength(2)
+    expect(screen.getByTestId('tab-one')).not.toBeNull()
+    expect(screen.getByTestId('tab-two')).not.toBeNull()
   })
 
   it('A5 the same ref gets the same tab object across rerenders, another ref another one', () => {

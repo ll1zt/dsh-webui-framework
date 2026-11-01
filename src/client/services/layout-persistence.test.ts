@@ -284,6 +284,7 @@ describe('LayoutPersistence with a splitter dragged through the dock', () => {
       return createElement(DockView, {
         snapshot,
         actions: controller.actions,
+        view: controller.view,
         renderBlock: (blockMeta) => createElement('div', null, blockMeta.id),
         t,
         language: 'en',
