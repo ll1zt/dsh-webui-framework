@@ -32,6 +32,7 @@ function HelloNote({ contentId, tab }: BlockInstanceProps) {
   const k = contentId.replace(/^n/, '')
   const [unsaved, setUnsaved] = useState(false)
   const [refused, setRefused] = useState(false)
+  const [text, setText] = useState('')
 
   useEffect(() => {
     tab.setTitle({ en: `Note ${k}`, zh: `笔记 ${k}` })
@@ -60,6 +61,7 @@ function HelloNote({ contentId, tab }: BlockInstanceProps) {
         />
         Unsaved changes
       </label>
+      <textarea aria-label="Note text" value={text} onChange={(event) => setText(event.target.value)} />
       {refused && <p>Close refused: unsaved changes</p>}
     </div>
   )

@@ -131,7 +131,7 @@ useEffect(() => {
 - 历史只存在当前页面里：刷新页面或读入保存的布局后清空。最多保留 100 步。
 - 撤销或重做落到的布局，会按当前已注册的块修复。
 - 某一步会去掉一个关闭守卫拒绝的标签时，被拒绝并返回 `vetoed`；没有步骤可走时返回 `no-history`。
-- 框架不自带撤销按钮或快捷键，需要的块自己提供，用 `view.canUndo()` / `view.canRedo()` 决定按钮是否可点：
+- 框架不自带撤销按钮（键盘上的撤销与重做见下一节），需要按钮的块自己提供，用 `view.canUndo()` / `view.canRedo()` 决定按钮是否可点：
 
 ```tsx
 function UndoButton({ layout, view }: BlockInstanceProps) {
@@ -144,6 +144,28 @@ function UndoButton({ layout, view }: BlockInstanceProps) {
 }
 ```
 
+### 键盘命令
+
+框架在宿主的 `shortcuts` 服务上注册七个命令，默认键位在所有平台上相同（primary 在 macOS 是 ⌘、其它系统是 Ctrl）：
+
+| id                    | 名称         | 默认键位            |
+| --------------------- | ------------ | ------------------- |
+| `webui.tab.close`     | 关闭当前标签 | primary+Alt+W       |
+| `webui.tab.next`      | 下一个标签   | primary+Alt+]       |
+| `webui.tab.previous`  | 上一个标签   | primary+Alt+[       |
+| `webui.pane.next`     | 下一个格子   | primary+Alt+.       |
+| `webui.pane.previous` | 上一个格子   | primary+Alt+,       |
+| `webui.layout.undo`   | 撤销布局改动 | primary+Alt+Z       |
+| `webui.layout.redo`   | 重做布局改动 | primary+Alt+Shift+Z |
+
+- 当前格子是键盘焦点所在的格子，焦点不在任何格子里时是活动格子。
+- 切换标签或格子后，焦点移到新的活动标签。
+- 撤销与重做只在页面区域生效，焦点在输入框或可编辑区域里时不拦截；其余五个命令在页面与可编辑区域都生效。
+- 终端区域与任何模态里，七个命令都不生效。
+- 不可关闭、或被关闭守卫否决的标签，按关闭键不会关。
+- 命令注册在宿主的 `shortcuts` 服务上：没有这个服务就没有命令；某个命令与别的插件的默认键位冲突时只告警，不影响其它命令。用户可以在宿主那边改键。
+- 本框架不提供速查与改键界面。
+
 ### 只读的布局视图
 
 `props.view` 是只读的布局视图，没有写方法，改布局要走 `props.layout`：
@@ -154,13 +176,13 @@ function UndoButton({ layout, view }: BlockInstanceProps) {
 - `view.isActive(target)`：该标签是否已打开并且是所在窗格的活动标签；
 - `view.canUndo()` / `view.canRedo()`：`layout.undo()` / `layout.redo()` 此刻有没有步骤可走。
 
-完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块（带「Undo」「Redo」按钮，按 `view.canUndo()` / `view.canRedo()` 启用）、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭）、一个 session 块、一个故意抛错的块和一个预设。示例不进发布包。
+完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块（带「Undo」「Redo」按钮，按 `view.canUndo()` / `view.canRedo()` 启用）、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭，还有一个「Note text」文本框，用来在输入框里试键盘命令）、一个 session 块、一个故意抛错的块和一个预设。示例不进发布包。
 
 ## 首版不做
 
 - 拖拽停靠、浮动窗口
 - 多会话并排
 - 窄窗口下的浮层
-- 设置页、快捷键
+- 设置页、快捷键的速查与改键界面
 - 工具卡片、会话行菜单
 - 任何具体的块或预设
