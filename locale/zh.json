@@ -7,5 +7,12 @@
   "shell.error.copy": "复制错误",
   "shell.error.pageTitle": "页面出错了",
   "shell.error.reload": "重新加载",
-  "shell.error.retry": "重试"
+  "shell.error.retry": "重试",
+  "shortcut.layout.redo": "重做布局改动",
+  "shortcut.layout.undo": "撤销布局改动",
+  "shortcut.pane.next": "下一个格子",
+  "shortcut.pane.previous": "上一个格子",
+  "shortcut.tab.close": "关闭当前标签",
+  "shortcut.tab.next": "下一个标签",
+  "shortcut.tab.previous": "上一个标签"
 }

@@ -7,5 +7,12 @@
   "shell.error.copy": "Copy error",
   "shell.error.pageTitle": "The page crashed",
   "shell.error.reload": "Reload",
-  "shell.error.retry": "Retry"
+  "shell.error.retry": "Retry",
+  "shortcut.layout.redo": "Redo layout change",
+  "shortcut.layout.undo": "Undo layout change",
+  "shortcut.pane.next": "Next pane",
+  "shortcut.pane.previous": "Previous pane",
+  "shortcut.tab.close": "Close current tab",
+  "shortcut.tab.next": "Next tab",
+  "shortcut.tab.previous": "Previous tab"
 }
