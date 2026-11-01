@@ -146,7 +146,7 @@ function UndoButton({ layout, view }: BlockInstanceProps) {
 
 ### 键盘命令
 
-框架在宿主的 `shortcuts` 服务上注册七个命令，默认键位在所有平台上相同（primary 在 macOS 是 ⌘、其它系统是 Ctrl）：
+框架在宿主的 `shortcuts` 服务上注册七个命令，默认键位在所有平台上相同（primary 在 macOS 是 ⌘、其它系统是 Ctrl）。下表适用于桌面应用（三种平台）以及 macOS / Windows 上的浏览器；这些平台没有在本仓库的机器上验证过。Linux 上的浏览器见下面的已知限制。
 
 | id                    | 名称         | 默认键位            |
 | --------------------- | ------------ | ------------------- |
@@ -165,6 +165,8 @@ function UndoButton({ layout, view }: BlockInstanceProps) {
 - 不可关闭、或被关闭守卫否决的标签，按关闭键不会关。
 - 命令注册在宿主的 `shortcuts` 服务上：没有这个服务就没有命令；某个命令与别的插件的默认键位冲突时只告警，不影响其它命令。用户可以在宿主那边改键。
 - 本框架不提供速查与改键界面。
+
+已知限制：在 Linux 上的浏览器里，宿主只接受 `primary+/`、`primary+Shift+,` 和 `primary+Shift+.` 三个键位，并且把 `primary+Z` 当作保留键，所以上表的七个默认键位全部被宿主拒绝：这些命令不会出现在宿主的快捷键目录里，每个命令在启动时在控制台告警一次（`[webui-framework] could not register the shortcut …`），页面和其它功能照常工作。要在那里绑定它们，需要宿主自己的改键界面，本框架不提供。
 
 ### 只读的布局视图
 
