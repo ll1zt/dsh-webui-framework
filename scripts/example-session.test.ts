@@ -127,6 +127,17 @@ describe('example session block', () => {
     expect(props.tab.setTitle).toHaveBeenCalledWith({ en: 'Note 2', zh: '笔记 2' })
   })
 
+  it('A1 the note block has a Note text box that shows what is typed', async () => {
+    const HelloNote = await registeredBlock('hello.note')
+    const props = fakeProps('hello.note', 'n1')
+
+    render(createElement(HelloNote, props))
+    const box = screen.getByRole('textbox', { name: 'Note text' }) as HTMLTextAreaElement
+    fireEvent.change(box, { target: { value: 'draft' } })
+
+    expect(box.value).toBe('draft')
+  })
+
   it('A3 vetoes closing while Unsaved changes is ticked and clears the guard otherwise', async () => {
     const HelloNote = await registeredBlock('hello.note')
     const props = fakeProps('hello.note', 'n1')
