@@ -1,12 +1,14 @@
 import type { Context } from '@deepseek-ai/cordis'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { BlockInstanceProps, LayoutPreset } from '@lllzt/dsh-webui-framework/contract'
 
 export const name = 'hello-block'
 
 let notes = 0
 
-function HelloRoot({ layout }: BlockInstanceProps) {
+function HelloRoot({ layout, view }: BlockInstanceProps) {
+  const canUndo = useSyncExternalStore(view.subscribe, view.canUndo)
+  const canRedo = useSyncExternalStore(view.subscribe, view.canRedo)
   return (
     <div style={{ padding: 16, color: 'var(--text)' }}>
       <p>Hello from a root block.</p>
@@ -15,6 +17,12 @@ function HelloRoot({ layout }: BlockInstanceProps) {
       </button>
       <button type="button" onClick={() => layout.open({ blockId: 'hello.note', contentId: `n${++notes}` })}>
         New note
+      </button>
+      <button type="button" disabled={!canUndo} onClick={() => layout.undo()}>
+        Undo
+      </button>
+      <button type="button" disabled={!canRedo} onClick={() => layout.redo()}>
+        Redo
       </button>
     </div>
   )
