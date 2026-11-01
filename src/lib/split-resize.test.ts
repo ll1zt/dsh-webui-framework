@@ -1,6 +1,7 @@
 import type { LayoutNode, LayoutSize, LayoutSplit } from '@lllzt/dsh-webui-framework/contract'
 import { describe, expect, it } from 'vitest'
 import { dragResize } from './split-resize.ts'
+import { deepFreeze } from '../test/deep-freeze.ts'
 
 const FR: LayoutSize = { fr: 1 }
 const px = (value: number, min = 100, max = 400): LayoutSize => ({ px: value, min, max })
@@ -12,14 +13,6 @@ const row = (sizes: LayoutSize[]): LayoutSplit => ({
   children: sizes.map((_, index) => pane(`b${index}`)),
   sizes,
 })
-
-function deepFreeze<T>(value: T): T {
-  if (typeof value === 'object' && value !== null) {
-    Object.values(value).forEach(deepFreeze)
-    Object.freeze(value)
-  }
-  return value
-}
 
 function frOf(size: LayoutSize | undefined): number {
   if (size === undefined || !('fr' in size)) throw new Error('not an fr size')
