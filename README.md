@@ -103,15 +103,16 @@ useEffect(() => {
 
 ### 动作结果
 
-`props.layout` 的五个动作 `open`、`close`、`activate`、`resize`、`resetToPreset` 都同步返回 `LayoutActionResult`：成功是 `{ ok: true }`（即使布局本来就是那样，比如打开已打开的标签），失败是 `{ ok: false, reason }`。被拒绝时布局不变，也不会通知 `onAction` 监听者。`reason` 是：
+`props.layout` 的七个动作 `open`、`close`、`activate`、`resize`、`resetToPreset`、`undo`、`redo` 都同步返回 `LayoutActionResult`：成功是 `{ ok: true }`（即使布局本来就是那样，比如打开已打开的标签），失败是 `{ ok: false, reason }`。被拒绝时布局不变，也不会通知 `onAction` 监听者。`reason` 是：
 
-| reason          | 含义                                             |
-| --------------- | ------------------------------------------------ |
-| `unknown-block` | 没有块以目标的 `blockId` 注册                    |
-| `not-closable`  | 块以 `closable: false` 注册                      |
-| `no-such-tab`   | 块已注册，但布局里没有目标对应的标签             |
-| `not-in-split`  | 标签在布局的根窗格里，没有可调整的分栏尺寸       |
-| `vetoed`        | 标签的关闭守卫拒绝了关闭，或拒绝了会丢掉它的重置 |
+| reason          | 含义                                                         |
+| --------------- | ------------------------------------------------------------ |
+| `unknown-block` | 没有块以目标的 `blockId` 注册                                |
+| `not-closable`  | 块以 `closable: false` 注册                                  |
+| `no-such-tab`   | 块已注册，但布局里没有目标对应的标签                         |
+| `not-in-split`  | 标签在布局的根窗格里，没有可调整的分栏尺寸                   |
+| `vetoed`        | 标签的关闭守卫拒绝了关闭，或拒绝了会丢掉它的重置、撤销或重做 |
+| `no-history`    | 没有可撤销或可重做的步骤                                     |
 
 各动作可能的拒绝原因，按检查顺序：
 
@@ -120,22 +121,44 @@ useEffect(() => {
 - `activate`：`unknown-block`，然后 `no-such-tab`。
 - `resize`：`unknown-block`，然后 `no-such-tab`，然后 `not-in-split`。
 - `resetToPreset`：只会是 `vetoed`；当某个已打开、而预设里没有的标签的守卫拒绝时整个重置不生效，预设保留的标签的守卫不会被问。
+- `undo` / `redo`：`no-history`，然后 `vetoed`。
+
+### 撤销与重做
+
+`props.layout.undo()` 回退上一步，`props.layout.redo()` 再前进一步，都同步返回 `LayoutActionResult`。
+
+- 只回退用户的操作：五个动作（`open`、`close`、`activate`、`resize`、`resetToPreset`）、拖动分隔条调整分栏尺寸（一次指针拖动算一步），以及撤销和重做本身。标签标题和关闭守卫不在其中。
+- 历史只存在当前页面里：刷新页面或读入保存的布局后清空。最多保留 100 步。
+- 撤销或重做落到的布局，会按当前已注册的块修复。
+- 某一步会去掉一个关闭守卫拒绝的标签时，被拒绝并返回 `vetoed`；没有步骤可走时返回 `no-history`。
+- 框架不自带撤销按钮或快捷键，需要的块自己提供，用 `view.canUndo()` / `view.canRedo()` 决定按钮是否可点：
+
+```tsx
+function UndoButton({ layout, view }: BlockInstanceProps) {
+  const canUndo = useSyncExternalStore(view.subscribe, view.canUndo)
+  return (
+    <button type="button" disabled={!canUndo} onClick={() => layout.undo()}>
+      Undo
+    </button>
+  )
+}
+```
 
 ### 只读的布局视图
 
 `props.view` 是只读的布局视图，没有写方法，改布局要走 `props.layout`：
 
 - `view.getSnapshot()`：当前布局，布局不变时是同一个（深冻结）对象，适合 `useSyncExternalStore`；
-- `view.subscribe(listener)`：布局对象每次变化后调用一次 `listener`，返回停止监听的函数；
+- `view.subscribe(listener)`：布局对象每次变化后调用一次 `listener`（`canUndo` / `canRedo` 变化后也会），返回停止监听的函数；
 - `view.isOpen(target)`：布局里是否有 `target` 对应的标签（单实例块忽略 `contentId`，`contentId` 默认 `''`，未注册的块一律是未打开）；
-- `view.isActive(target)`：该标签是否已打开并且是所在窗格的活动标签。
+- `view.isActive(target)`：该标签是否已打开并且是所在窗格的活动标签；
+- `view.canUndo()` / `view.canRedo()`：`layout.undo()` / `layout.redo()` 此刻有没有步骤可走。
 
-完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭）、一个 session 块、一个故意抛错的块和一个预设。示例不进发布包。
+完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块（带「Undo」「Redo」按钮，按 `view.canUndo()` / `view.canRedo()` 启用）、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭）、一个 session 块、一个故意抛错的块和一个预设。示例不进发布包。
 
 ## 首版不做
 
 - 拖拽停靠、浮动窗口
-- 撤销 / 重做
 - 多会话并排
 - 窄窗口下的浮层
 - 设置页、快捷键
