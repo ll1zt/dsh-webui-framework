@@ -8,7 +8,7 @@ const INTRO = 'var module = { exports: {} }; var exports = module.exports;'
 const FOOTER = 'return module.exports; } });'
 
 /** Modules the host provides; the bundle `require`s them instead of carrying a copy. */
-const HOST_MODULES = new Set(['react', 'react/jsx-runtime', 'react-dom'])
+const HOST_MODULES = new Set(['react', 'react/jsx-runtime', 'react-dom', '@deepseek-ai/dsh-client-ui-primitives'])
 
 const nodeHalf: UserConfig = {
   name: `${PLUGIN_ID}/node`,

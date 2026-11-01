@@ -1,4 +1,5 @@
 import type { Context } from '@deepseek-ai/cordis'
+import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { BlockInstanceProps, LayoutPreset } from '@lllzt/dsh-webui-framework/contract'
 
@@ -9,6 +10,7 @@ let notes = 0
 function HelloRoot({ layout, view }: BlockInstanceProps) {
   const canUndo = useSyncExternalStore(view.subscribe, view.canUndo)
   const canRedo = useSyncExternalStore(view.subscribe, view.canRedo)
+  const [open, setOpen] = useState(false)
   return (
     <div style={{ padding: 16, color: 'var(--text)' }}>
       <p>Hello from a root block.</p>
@@ -24,6 +26,12 @@ function HelloRoot({ layout, view }: BlockInstanceProps) {
       <button type="button" disabled={!canRedo} onClick={() => layout.redo()}>
         Redo
       </button>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open dialog
+      </button>
+      <Modal open={open} onClose={() => setOpen(false)} title="Hello dialog" closeLabel="Close">
+        <p>This dialog is the host's Modal, opened from a root block.</p>
+      </Modal>
     </div>
   )
 }
