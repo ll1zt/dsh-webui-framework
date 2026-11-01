@@ -11,6 +11,13 @@
  *
  * Registering a block straight through `slots.register` bypasses the de-duplication that
  * `registerBlock` performs.
+ *
+ * `props.layout.undo()` and `redo()` step back and forth over what the user did to the layout: the five layout actions,
+ * dragging or resizing a split, and undo / redo themselves. Tab titles and close guards are not part of it. The history
+ * lives in the current page only: a reload, or a saved layout being loaded, empties it. It keeps at most 100 steps. The
+ * layout a step lands on is repaired against the blocks registered now; a step that would drop a tab whose close guard
+ * refuses is rejected with `vetoed`, and `no-history` says there is no step to take. `props.view.canUndo()` and
+ * `canRedo()` tell whether a step exists.
  */
 import type { ComponentType } from 'react'
 
@@ -106,9 +113,11 @@ export interface BlockTarget {
  * - `not-closable`: the block is registered with `closable: false`.
  * - `no-such-tab`: the block is registered but the layout has no tab for the target.
  * - `not-in-split`: the tab sits in the layout's root pane, so no split gives it a size to change.
- * - `vetoed`: a tab's close guard refused the close, or the reset that would drop that tab.
+ * - `vetoed`: a tab's close guard refused the close, or the reset, undo or redo that would drop that tab.
+ * - `no-history`: there is no step to undo or redo.
  */
-export type LayoutActionRejection = 'unknown-block' | 'not-closable' | 'no-such-tab' | 'not-in-split' | 'vetoed'
+export type LayoutActionRejection =
+  'unknown-block' | 'not-closable' | 'no-such-tab' | 'not-in-split' | 'vetoed' | 'no-history'
 
 /**
  * What a layout action reports, synchronously. `ok: true` means the request was accepted, even when the layout
@@ -132,6 +141,13 @@ export interface BlockLayoutActions {
    * that preset has a close guard that refuses; the guards of tabs the preset keeps are not asked.
    */
   resetToPreset(): LayoutActionResult
+  /**
+   * Goes back to the layout from before the user's last action, repaired against the blocks registered now. Rejected with
+   * `no-history`, then `vetoed` (and nothing changes) when a tab it would drop has a close guard that refuses.
+   */
+  undo(): LayoutActionResult
+  /** Undoes the last undo, under the same rules and rejections as `undo`. */
+  redo(): LayoutActionResult
 }
 
 /**
@@ -146,7 +162,8 @@ export interface LayoutView {
   getSnapshot(): WebuiLayout
   /**
    * Calls `listener` once after each change of the layout object, whatever caused it: a layout action, a repair after
-   * blocks (un)register, a loaded layout or the registry settling. A change of the block list alone that leaves the layout
+   * blocks (un)register, a loaded layout or the registry settling, and once after each change of `canUndo` or `canRedo`
+   * (once when the layout and either of them change together). A change of the block list alone that leaves the layout
    * as it is calls nobody. The returned disposer stops the listening.
    */
   subscribe(listener: () => void): Disposer
@@ -154,6 +171,10 @@ export interface LayoutView {
   isOpen(target: BlockTarget): boolean
   /** Whether the tab `target` names is open and is the active tab of its pane. */
   isActive(target: BlockTarget): boolean
+  /** Whether `props.layout.undo()` has a step to take. */
+  canUndo(): boolean
+  /** Whether `props.layout.redo()` has a step to take. */
+  canRedo(): boolean
 }
 
 /** Props every block instance receives. */

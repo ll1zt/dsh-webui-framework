@@ -2,6 +2,15 @@
 
 Every change to `contract/index.d.ts` needs a new version here, a matching `version` in `package.json` and a refreshed `contract/lock.json` (`node scripts/contract-lock.ts --write`).
 
+## 0.2.0
+
+Backwards-compatible addition to 0.1.0: blocks can undo and redo the user's layout changes. The contract changed in the following ways.
+
+- `LayoutActionRejection` gains `no-history`, the reason `undo` and `redo` give when there is no step to take.
+- `props.layout.undo()` and `props.layout.redo()` step back and forth over the user's layout actions and return a `LayoutActionResult`; a step that would drop a tab whose close guard refuses is rejected with `vetoed`.
+- `LayoutView` gains `canUndo()` and `canRedo()`.
+- `LayoutView.subscribe` also calls its listener once after a change of `canUndo` or `canRedo` (once when the layout changes together with them).
+
 ## 0.1.0
 
 Breaking change relative to 0.0.0: the contract changed in the following ways.
