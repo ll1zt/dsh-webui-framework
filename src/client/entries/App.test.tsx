@@ -15,11 +15,13 @@ import type { BlockErrorCardProps } from '../../ui/shell/ErrorBoundary.tsx'
 import type { BlockRegistration } from '../services/block-registry.ts'
 import type { BlockFailure } from '../services/entry-errors.ts'
 import type { DockSnapshot } from '../services/layout-controller.ts'
+import { LOG_PREFIX } from '../services/log-prefix.ts'
 import type { WebuiTranslate } from '../types.ts'
 import { App } from './App.tsx'
 
 const ROOT_KEY = 'webui.block.root'
 const SESSION_KEY = 'webui.block.session'
+const OVERLAY_KEY = 'shell.overlay'
 
 function registration(id: string, scope: BlockMeta['scope']): BlockRegistration {
   const meta: BlockMeta = {
@@ -58,7 +60,14 @@ function renderApp(
     hasSession = false,
     language = 'zh-CN',
     failures = new Map<string, BlockFailure>(),
-  }: { hasSession?: boolean; language?: string; failures?: ReadonlyMap<string, BlockFailure> } = {},
+    overlay = () => null,
+  }: {
+    hasSession?: boolean
+    language?: string
+    failures?: ReadonlyMap<string, BlockFailure>
+    /** What the shell.overlay list renders; may throw. */
+    overlay?: () => ReactNode
+  } = {},
 ) {
   const dockActions = {
     open: vi.fn(),
@@ -73,6 +82,10 @@ function renderApp(
   const renderSlot = vi.fn((key: string, _owner: BlockInstanceProps, opts: { only: string; fallback?: ReactNode }) =>
     key === SESSION_KEY && !hasSession ? (opts.fallback ?? null) : <div data-testid={`slot-${opts.only}`} />,
   )
+  // The overlay list has its own mock, so `renderSlot` keeps recording block calls only.
+  const overlaySlot = vi.fn((_key: string, _owner: object, _opts?: { only?: string }) => overlay())
+  const dispatchSlot = (key: string, owner: BlockInstanceProps, opts: { only: string; fallback?: ReactNode }) =>
+    key === OVERLAY_KEY ? overlaySlot(key, owner, opts) : renderSlot(key, owner, opts)
   // Mirrors the host: without a main session only `empty` renders, even when the caller passed none.
   const SessionProvider = vi.fn(({ children, empty }: SessionProviderProps) =>
     hasSession ? <>{children}</> : <>{empty?.() ?? null}</>,
@@ -96,11 +109,11 @@ function renderApp(
       retryBlock={retryBlock}
       dockActions={dockActions}
       layoutView={layoutView}
-      renderSlot={renderSlot}
+      renderSlot={dispatchSlot}
       SessionProvider={SessionProvider}
     />,
   )
-  return { renderSlot, SessionProvider, dockActions, retryBlock, layoutView }
+  return { renderSlot, overlaySlot, SessionProvider, dockActions, retryBlock, layoutView }
 }
 
 describe('App', () => {
@@ -225,6 +238,66 @@ describe('App', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'shell.error.retry' }))
     expect(retryBlock).toHaveBeenCalledWith('r1')
+  })
+
+  it('A2 renders one overlay layer after the dock inside the root, from the whole shell.overlay list', () => {
+    const withLayout = renderApp(snapshotOf(pane('r1'), [registration('r1', 'root')]), {
+      overlay: () => <div data-testid="overlay-item" />,
+    })
+
+    const layers = document.querySelectorAll('.webui-root > .webui-overlay[data-shell-overlay]')
+    expect(layers).toHaveLength(1)
+    const layer = layers[0]
+    const dock = document.querySelector('.webui-dock')
+    if (layer === undefined || dock === null) throw new Error('the overlay layer or the dock is missing')
+    expect(layer.parentElement?.lastElementChild).toBe(layer)
+    expect(dock.compareDocumentPosition(layer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(layer.contains(screen.getByTestId('overlay-item'))).toBe(true)
+    expect(withLayout.overlaySlot).toHaveBeenCalled()
+    for (const [key, , opts] of withLayout.overlaySlot.mock.calls) {
+      expect(key).toBe(OVERLAY_KEY)
+      expect(opts?.only).toBeUndefined()
+    }
+    cleanup()
+
+    const empty = renderApp(snapshotOf(null, []))
+
+    expect(document.querySelectorAll('.webui-root > .webui-overlay[data-shell-overlay]')).toHaveLength(1)
+    expect(empty.overlaySlot).toHaveBeenCalled()
+  })
+
+  it('A2 the overlay layer exists and has no text when the shell.overlay list is empty', () => {
+    renderApp(snapshotOf(pane('r1'), [registration('r1', 'root')]))
+
+    const layer = document.querySelector('.webui-root > .webui-overlay[data-shell-overlay]')
+    expect(layer).not.toBeNull()
+    expect(layer?.textContent).toBe('')
+  })
+
+  it('A3 a shell.overlay render error leaves the dock alive, shows no page panel and logs once with the prefix', () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    renderApp(snapshotOf(pane('r1'), [registration('r1', 'root')]), {
+      overlay: () => {
+        throw new Error('overlay exploded')
+      },
+    })
+
+    expect(screen.getByTestId('slot-r1')).not.toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByText('shell.error.pageTitle')).toBeNull()
+    // React may log the caught error itself in development; only the framework's own line carries the prefix
+    const own = logged.mock.calls.filter(([first]) => typeof first === 'string' && first.includes(LOG_PREFIX))
+    expect(own).toHaveLength(1)
+    cleanup()
+
+    renderApp(snapshotOf(null, []), {
+      overlay: () => {
+        throw new Error('overlay exploded')
+      },
+    })
+    expect(screen.getByText('dock.empty')).not.toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    logged.mockRestore()
   })
 
   it('A2 types the webui copy seat by the zh key set', () => {

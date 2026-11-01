@@ -3,7 +3,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { BlockFailure } from '../../client/services/entry-errors.ts'
-import { AppErrorBoundary, BlockErrorCard } from './ErrorBoundary.tsx'
+import { LOG_PREFIX } from '../../client/services/log-prefix.ts'
+import { AppErrorBoundary, BlockErrorCard, OverlayBoundary } from './ErrorBoundary.tsx'
 
 const ERROR_MESSAGE = 'boundary exploded'
 
@@ -40,6 +41,33 @@ describe('ErrorBoundary', () => {
     fireEvent.click(screen.getByRole('button', { name: 'shell.error.reload' }))
     expect(reload).toHaveBeenCalledTimes(1)
     expect(writeText).not.toHaveBeenCalled()
+  })
+
+  it('A3 the overlay boundary renders its children and renders nothing for a throwing child, logging once with the prefix', () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const ok = render(
+      <OverlayBoundary>
+        <span>fine</span>
+      </OverlayBoundary>,
+    )
+    expect(ok.container.textContent).toBe('fine')
+    ok.unmount()
+    expect(logged).not.toHaveBeenCalled()
+
+    function Boom(): ReactNode {
+      throw new Error(ERROR_MESSAGE)
+    }
+
+    const { container } = render(
+      <OverlayBoundary>
+        <Boom />
+      </OverlayBoundary>,
+    )
+
+    expect(container.innerHTML).toBe('')
+    // React may log the caught error itself in development; only the framework's own line carries the prefix
+    const own = logged.mock.calls.filter(([first]) => typeof first === 'string' && first.includes(LOG_PREFIX))
+    expect(own).toHaveLength(1)
   })
 
   it('A1 the block card is an alert with the title copy, the block title and the error message', () => {

@@ -51,6 +51,23 @@ describe('client apply', () => {
     ctx.disposeAll()
   })
 
+  it('A1 the root registration also declares shell.overlay as a root list, open to registration and injection', () => {
+    const ctx = createFakeContext({ theme: { getTheme: () => snapshot() } })
+    apply(ctx)
+
+    const entry = ctx.slots.entries('root')[0]
+    if (entry === undefined) throw new Error('the root slot has no registration')
+    const children = entry.children as Record<string, unknown>
+    expect(Object.keys(children).sort()).toEqual(['shell.overlay', 'webui.block.root', 'webui.block.session'])
+    expect(children['shell.overlay']).toEqual({ kind: 'list', scope: 'root' })
+    // the fake only records slots.inject callbacks; the declaration is what lets a host run them
+    expect(ctx.slots.spec('shell.overlay')).toEqual({ kind: 'list', scope: 'root' })
+    ctx.slots.refuseUndeclared = true
+    expect(() => ctx.slots.register({ name: 'shell.overlay' }, () => null)).not.toThrow()
+    expect(() => ctx.slots.inject('shell.overlay', () => undefined)).not.toThrow()
+    ctx.disposeAll()
+  })
+
   it('A4 the root registration carries no store', () => {
     const ctx = createFakeContext({ theme: { getTheme: () => snapshot() } })
     apply(ctx)

@@ -1,9 +1,10 @@
 /**
- * The shell's two failure faces: a per-block card that leaves the rest of the
- * page alive, and a whole-page panel for a crash above every block. The page
- * panel is the package's only class component — catching a render error is the
- * one thing hooks cannot do. The per-block card needs no boundary: the host
- * wraps every slot entry itself and reports the failure.
+ * The shell's failure faces: a per-block card that leaves the rest of the
+ * page alive, a whole-page panel for a crash above every block, and a silent
+ * boundary around the overlay list. These are the package's only class
+ * components — catching a render error is the one thing hooks cannot do. The
+ * per-block card needs no boundary: the host wraps every slot entry itself and
+ * reports the failure.
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import type { BlockFailure } from '../../client/services/entry-errors.ts'
@@ -73,6 +74,25 @@ export function BlockErrorCard({ failure, title, onRetry, t }: BlockErrorCardPro
       </div>
     </div>
   )
+}
+
+/**
+ * Keep a failing overlay list from reaching the page panel: log it once and draw nothing in its place.
+ */
+export class OverlayBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false }
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+
+  override componentDidCatch(error: Error, info: ErrorInfo): void {
+    console.error(`${LOG_PREFIX} overlay`, error, info.componentStack ?? '')
+  }
+
+  override render(): ReactNode {
+    return this.state.failed ? null : this.props.children
+  }
 }
 
 /**

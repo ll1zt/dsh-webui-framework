@@ -23,11 +23,16 @@ export type WebuiTranslate = TranslateNS<'webui'>
 /** Slot keys of the block lists, by block scope: the only place the `webui.block.*` names are spelled. */
 export const WEBUI_SLOT_KEYS = { root: 'webui.block.root', session: 'webui.block.session' } as const
 
+/** Slot key of the host's overlay list (toasts, badges): the only place the `shell.overlay` name is spelled. */
+export const SHELL_OVERLAY_KEY = 'shell.overlay'
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /** Blocks of `root` scope: additive list the shell renders in the workspace. */
     'webui.block.root': { kind: 'list'; scope: 'root'; owner: BlockInstanceProps }
     /** Blocks of `session` scope: additive list rendered inside the session area. */
     'webui.block.session': { kind: 'list'; scope: 'session'; owner: BlockInstanceProps }
+    /** Overlay entries the shell draws above the dock; same declaration as the host's ui-layout. */
+    'shell.overlay': { kind: 'list'; scope: 'root' }
   }
 }
