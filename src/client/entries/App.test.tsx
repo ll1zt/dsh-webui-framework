@@ -60,7 +60,15 @@ function renderApp(
     failures = new Map<string, BlockFailure>(),
   }: { hasSession?: boolean; language?: string; failures?: ReadonlyMap<string, BlockFailure> } = {},
 ) {
-  const dockActions = { open: vi.fn(), close: vi.fn(), activate: vi.fn(), resize: vi.fn(), resetToPreset: vi.fn() }
+  const dockActions = {
+    open: vi.fn(),
+    close: vi.fn(),
+    activate: vi.fn(),
+    resize: vi.fn(),
+    resetToPreset: vi.fn(),
+    undo: vi.fn(),
+    redo: vi.fn(),
+  }
   // A session-scope slot without a main session renders the caller's fallback; otherwise a marker.
   const renderSlot = vi.fn((key: string, _owner: BlockInstanceProps, opts: { only: string; fallback?: ReactNode }) =>
     key === SESSION_KEY && !hasSession ? (opts.fallback ?? null) : <div data-testid={`slot-${opts.only}`} />,
@@ -75,6 +83,8 @@ function renderApp(
     subscribe: () => () => {},
     isOpen: () => false,
     isActive: () => false,
+    canUndo: () => false,
+    canRedo: () => false,
   }
   const RootEntry = App as unknown as ComponentType<Record<string, unknown>>
   render(
@@ -146,7 +156,7 @@ describe('App', () => {
 
     const layout = renderSlot.mock.calls[0]?.[1].layout
     if (layout === undefined) throw new Error('renderSlot was not called')
-    expect(Object.keys(layout).sort()).toEqual(['activate', 'close', 'open', 'resetToPreset', 'resize'])
+    expect(Object.keys(layout).sort()).toEqual(['activate', 'close', 'open', 'redo', 'resetToPreset', 'resize', 'undo'])
     const target = { blockId: 'r1', contentId: 'x' }
     layout.open(target)
     expect(dockActions.open).toHaveBeenCalledWith(target)

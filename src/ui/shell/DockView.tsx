@@ -49,7 +49,7 @@ export interface DockViewProps {
 
 type DockContext = Omit<DockViewProps, 'snapshot'> & {
   metas: ReadonlyMap<string, BlockMeta>
-  /** What blocks get as `props.layout`: the five block actions and nothing else of `actions`. */
+  /** What blocks get as `props.layout`: the seven block actions and nothing else of `actions`. */
   layout: BlockLayoutActions
   /** The titles tabs gave themselves, by `tabKey`. */
   titles: ReadonlyMap<string, LocalizedText>
@@ -58,7 +58,7 @@ type DockContext = Omit<DockViewProps, 'snapshot'> & {
 const blockLayouts = new WeakMap<object, BlockLayoutActions>()
 
 /**
- * The five block actions of `actions`, the same object for the same `actions`, so blocks never see `resizeSplit` and friends.
+ * The seven block actions of `actions`, the same object for the same `actions`, so blocks never see `resizeSplit` and friends.
  * Each one forwards to the method of the same name with `actions` as `this`, so methods that use `this` work too.
  */
 function blockLayoutOf(actions: BlockLayoutActions): BlockLayoutActions {
@@ -70,6 +70,8 @@ function blockLayoutOf(actions: BlockLayoutActions): BlockLayoutActions {
       activate: (target) => actions.activate(target),
       resize: (target, size) => actions.resize(target, size),
       resetToPreset: () => actions.resetToPreset(),
+      undo: () => actions.undo(),
+      redo: () => actions.redo(),
     }
     blockLayouts.set(actions, layout)
   }

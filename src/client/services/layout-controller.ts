@@ -16,6 +16,13 @@ import type {
   WebuiLayout,
 } from '@lllzt/dsh-webui-framework/contract'
 import { chooseLayout, clampSize, nodeAt, replaceAt, resolveLayout, type LayoutCatalog } from '../../lib/layout.ts'
+import {
+  EMPTY_LAYOUT_HISTORY,
+  recordLayout,
+  stepBack,
+  stepForward,
+  type LayoutHistory,
+} from '../../lib/layout-history.ts'
 import { activateBlock, closeBlock, openBlock, resizeBlock, tabPathOf } from '../../lib/layout-ops.ts'
 import type { BlockRegistration, BlockRegistry } from './block-registry.ts'
 import { LOG_PREFIX } from './log-prefix.ts'
@@ -125,6 +132,8 @@ export class LayoutController {
   #gesture: WebuiLayout | null = null
   /** Close guards by `tabKey`; only tabs in the layout have one. */
   #guards = new Map<string, CloseGuard>()
+  /** The layouts the user can step back to and forward to; only user actions record into it, and it lives and dies with the page. */
+  #history: LayoutHistory = EMPTY_LAYOUT_HISTORY
 
   readonly actions: DockActions = {
     open: (target) =>
@@ -170,6 +179,8 @@ export class LayoutController {
         },
         (_layout, catalog) => this.#adopt(undefined, catalog),
       ),
+    undo: () => this.#step(stepBack),
+    redo: () => this.#step(stepForward),
     resizeSplit: (path, sizes) => this.#update((layout) => resizeSplitAt(layout, path, sizes), true),
     beginResize: () => {
       this.#gesture ??= this.#snapshot.layout
@@ -179,7 +190,9 @@ export class LayoutController {
       if (began === null) return
       this.#gesture = null
       const layout = this.#snapshot.layout
-      if (layout !== began) this.#notify(layout)
+      if (layout === began) return
+      if (!sameData(began, layout)) this.#setHistory(recordLayout(this.#history, began))
+      this.#notify(layout)
     },
     setTabTitle: (ref, title) => {
       const { blocks, layout, titles } = this.#snapshot
@@ -217,6 +230,8 @@ export class LayoutController {
       const tab = this.#tabOf(target)
       return tab !== undefined && tab.pane.tabs[tab.pane.active] === tab.ref
     },
+    canUndo: () => this.#history.past.length > 0,
+    canRedo: () => this.#history.future.length > 0,
   }
 
   constructor(registry: BlockRegistry) {
@@ -286,7 +301,10 @@ export class LayoutController {
     this.#settled = settled
     this.#following = false
     const blocks = this.#registry.blocks()
-    this.#publish({ layout: this.#adopt(saved, this.#catalogOf(blocks)), blocks, titles: this.#snapshot.titles })
+    this.#publish(
+      { layout: this.#adopt(saved, this.#catalogOf(blocks)), blocks, titles: this.#snapshot.titles },
+      EMPTY_LAYOUT_HISTORY,
+    )
   }
 
   /** The tab `target` names in the current layout, with the pane holding it; undefined when it is not open or its block is not registered. */
@@ -352,11 +370,36 @@ export class LayoutController {
     const { blocks, layout, titles } = this.#snapshot
     const next = change(layout, this.#catalogOf(blocks))
     if (next === layout) return
-    this.#publish({ layout: next, blocks, titles })
+    const announced = !(deferrable && this.#gesture !== null)
+    this.#publish(
+      { layout: next, blocks, titles },
+      announced && !sameData(layout, next) ? recordLayout(this.#history, layout) : this.#history,
+    )
     const published = this.#snapshot.layout
-    if (deferrable && this.#gesture !== null) return
+    if (!announced) return
     this.#notify(published)
     if (this.#gesture !== null) this.#gesture = published
+  }
+
+  /** Undo or redo: lands on the repaired target unless a close guard vetoes a tab it drops; the layout is announced when its object changed. */
+  #step(
+    take: (history: LayoutHistory, current: WebuiLayout) => { history: LayoutHistory; layout: WebuiLayout } | undefined,
+  ): LayoutActionResult {
+    const { blocks, layout, titles } = this.#snapshot
+    const step = take(this.#history, layout)
+    if (step === undefined) return { ok: false, reason: 'no-history' }
+    const target = resolveLayout(step.layout, this.#catalogOf(blocks)).layout
+    const kept = tabKeysOf(target.root)
+    for (const key of tabKeysOf(layout.root))
+      if (!kept.has(key) && !this.#allows(key)) return { ok: false, reason: 'vetoed' }
+    this.#following = false
+    this.#publish({ layout: target, blocks, titles }, step.history)
+    const published = this.#snapshot.layout
+    if (published !== layout) {
+      this.#notify(published)
+      if (this.#gesture !== null) this.#gesture = published
+    }
+    return { ok: true }
   }
 
   #notify(layout: WebuiLayout): void {
@@ -367,8 +410,10 @@ export class LayoutController {
    * Publishes `snapshot`, dropping the titles and close guards of tabs that are no longer in its layout. The layout is
    * frozen, and a layout holding the data of the current one is replaced by the current object, so the view hears nothing.
    */
-  #publish(snapshot: DockSnapshot): void {
+  #publish(snapshot: DockSnapshot, history: LayoutHistory = this.#history): void {
     const previous = this.#snapshot.layout
+    const stepsBefore = this.#stepsOf()
+    this.#history = history
     const layout = sameData(previous, snapshot.layout) ? previous : frozenDeep(snapshot.layout)
     const keys = tabKeysOf(layout.root)
     const kept = [...snapshot.titles].filter(([key]) => keys.has(key))
@@ -379,6 +424,22 @@ export class LayoutController {
     }
     for (const key of [...this.#guards.keys()]) if (!keys.has(key)) this.#guards.delete(key)
     for (const listener of [...this.#listeners]) listener()
-    if (layout !== previous) for (const listener of [...this.#viewListeners]) listener()
+    if (layout !== previous || this.#stepsOf() !== stepsBefore) this.#notifyView()
+  }
+
+  /** Stores `history`, and tells the view listeners when that changes `canUndo` or `canRedo`. */
+  #setHistory(history: LayoutHistory): void {
+    const stepsBefore = this.#stepsOf()
+    this.#history = history
+    if (this.#stepsOf() !== stepsBefore) this.#notifyView()
+  }
+
+  /** `canUndo` and `canRedo` as one comparable value. */
+  #stepsOf(): number {
+    return (this.#history.past.length > 0 ? 1 : 0) + (this.#history.future.length > 0 ? 2 : 0)
+  }
+
+  #notifyView(): void {
+    for (const listener of [...this.#viewListeners]) listener()
   }
 }

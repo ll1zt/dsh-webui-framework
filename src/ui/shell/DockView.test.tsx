@@ -58,10 +58,20 @@ const idleView: LayoutView = {
   subscribe: () => () => {},
   isOpen: () => false,
   isActive: () => false,
+  canUndo: () => false,
+  canRedo: () => false,
 }
 
 function makeActions(): BlockLayoutActions {
-  return { open: vi.fn(), close: vi.fn(), activate: vi.fn(), resize: vi.fn(), resetToPreset: vi.fn() }
+  return {
+    open: vi.fn(),
+    close: vi.fn(),
+    activate: vi.fn(),
+    resize: vi.fn(),
+    resetToPreset: vi.fn(),
+    undo: vi.fn(),
+    redo: vi.fn(),
+  }
 }
 
 const markerOf = (meta: BlockMeta, contentId: string): string =>
@@ -495,9 +505,9 @@ describe('DockView splitters', () => {
 })
 
 describe('DockView block layout actions', () => {
-  const BLOCK_KEYS = ['activate', 'close', 'open', 'resetToPreset', 'resize']
+  const BLOCK_KEYS = ['activate', 'close', 'open', 'redo', 'resetToPreset', 'resize', 'undo']
 
-  it('A1 a block gets only the five layout methods, never resizeSplit, beginResize or endResize', () => {
+  it('A1 A9 a block gets only the seven layout methods, never resizeSplit, beginResize or endResize', () => {
     const actions = { ...makeActions(), resizeSplit: vi.fn(), beginResize: vi.fn(), endResize: vi.fn() }
     const { renderBlock } = renderDock(layoutOf(pane(0, ['a'], ['b'])), [registration('a'), registration('b')], {
       actions,
@@ -532,7 +542,7 @@ describe('DockView block layout actions', () => {
     for (const [, instance] of renderBlock.mock.calls) expect(instance.layout).toBe(first)
   })
 
-  it('A1 calling a method of the block layout forwards to the same-named method of props.actions', () => {
+  it('A1 A9 calling a method of the block layout forwards to the same-named method of props.actions', () => {
     const actions = { ...makeActions(), resizeSplit: vi.fn(), beginResize: vi.fn(), endResize: vi.fn() }
     const { renderBlock } = renderDock(layoutOf(pane(0, ['a'])), [registration('a')], { actions })
     const layout = renderBlock.mock.calls[0]?.[1].layout
@@ -544,21 +554,27 @@ describe('DockView block layout actions', () => {
     layout.activate(target)
     layout.resize(target, { fr: 2 })
     layout.resetToPreset()
+    layout.undo()
+    layout.redo()
 
     expect(actions.open).toHaveBeenCalledWith(target)
     expect(actions.close).toHaveBeenCalledWith(target)
     expect(actions.activate).toHaveBeenCalledWith(target)
     expect(actions.resize).toHaveBeenCalledWith(target, { fr: 2 })
     expect(actions.resetToPreset).toHaveBeenCalledTimes(1)
+    expect(actions.undo).toHaveBeenCalledTimes(1)
+    expect(actions.redo).toHaveBeenCalledTimes(1)
   })
 
-  it('A4 calling a method of the block layout returns what the same-named method of props.actions returned', () => {
+  it('A4 A9 calling a method of the block layout returns what the same-named method of props.actions returned', () => {
     const results = {
       open: { ok: false, reason: 'unknown-block' },
       close: { ok: false, reason: 'not-closable' },
       activate: { ok: false, reason: 'no-such-tab' },
       resize: { ok: false, reason: 'not-in-split' },
       resetToPreset: { ok: true },
+      undo: { ok: false, reason: 'no-history' },
+      redo: { ok: true },
     } as const satisfies Record<keyof BlockLayoutActions, LayoutActionResult>
     const actions = {
       open: vi.fn(() => results.open),
@@ -566,6 +582,8 @@ describe('DockView block layout actions', () => {
       activate: vi.fn(() => results.activate),
       resize: vi.fn(() => results.resize),
       resetToPreset: vi.fn(() => results.resetToPreset),
+      undo: vi.fn(() => results.undo),
+      redo: vi.fn(() => results.redo),
       resizeSplit: vi.fn(),
       beginResize: vi.fn(),
       endResize: vi.fn(),
@@ -580,9 +598,11 @@ describe('DockView block layout actions', () => {
     expect(layout.activate(target)).toBe(results.activate)
     expect(layout.resize(target, { fr: 2 })).toBe(results.resize)
     expect(layout.resetToPreset()).toBe(results.resetToPreset)
+    expect(layout.undo()).toBe(results.undo)
+    expect(layout.redo()).toBe(results.redo)
   })
 
-  it('A1 this-bound methods of a class instance work through props.layout, each called with the instance as this and the original arguments', () => {
+  it('A1 A9 this-bound methods of a class instance work through props.layout, each called with the instance as this and the original arguments', () => {
     class ThisActions implements BlockLayoutActions {
       calls: unknown[][] = []
       open(target: BlockTarget): LayoutActionResult {
@@ -605,6 +625,14 @@ describe('DockView block layout actions', () => {
         this.calls.push(['resetToPreset', this])
         return { ok: true }
       }
+      undo(): LayoutActionResult {
+        this.calls.push(['undo', this])
+        return { ok: true }
+      }
+      redo(): LayoutActionResult {
+        this.calls.push(['redo', this])
+        return { ok: true }
+      }
       resizeSplit(): void {}
       beginResize(): void {}
       endResize(): void {}
@@ -620,6 +648,8 @@ describe('DockView block layout actions', () => {
     layout.activate(target)
     layout.resize(target, { fr: 2 })
     layout.resetToPreset()
+    layout.undo()
+    layout.redo()
 
     expect(actions.calls).toEqual([
       ['open', actions, target],
@@ -627,11 +657,13 @@ describe('DockView block layout actions', () => {
       ['activate', actions, target],
       ['resize', actions, target, { fr: 2 }],
       ['resetToPreset', actions],
+      ['undo', actions],
+      ['redo', actions],
     ])
     for (const [, self] of actions.calls) expect(self).toBe(actions)
   })
 
-  it('A5 this-bound method shorthands of an object literal work through props.layout, each called with that object as this and the original arguments', () => {
+  it('A5 A9 this-bound method shorthands of an object literal work through props.layout, each called with that object as this and the original arguments', () => {
     const actions: DockViewProps['actions'] & { calls: unknown[][] } = {
       calls: [],
       open(target: BlockTarget): LayoutActionResult {
@@ -654,6 +686,14 @@ describe('DockView block layout actions', () => {
         this.calls.push(['resetToPreset', this])
         return { ok: true }
       },
+      undo(): LayoutActionResult {
+        this.calls.push(['undo', this])
+        return { ok: true }
+      },
+      redo(): LayoutActionResult {
+        this.calls.push(['redo', this])
+        return { ok: true }
+      },
       resizeSplit(): void {},
       beginResize(): void {},
       endResize(): void {},
@@ -668,6 +708,8 @@ describe('DockView block layout actions', () => {
     layout.activate(target)
     layout.resize(target, { fr: 2 })
     layout.resetToPreset()
+    layout.undo()
+    layout.redo()
 
     expect(actions.calls).toEqual([
       ['open', actions, target],
@@ -675,6 +717,8 @@ describe('DockView block layout actions', () => {
       ['activate', actions, target],
       ['resize', actions, target, { fr: 2 }],
       ['resetToPreset', actions],
+      ['undo', actions],
+      ['redo', actions],
     ])
     for (const [, self] of actions.calls) expect(self).toBe(actions)
   })

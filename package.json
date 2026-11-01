@@ -1,6 +1,6 @@
 {
   "name": "@lllzt/dsh-webui-framework",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A whole-page UI framework for the dsh (deepseek-harness) Web frontend",
   "license": "MIT",
   "type": "module",
