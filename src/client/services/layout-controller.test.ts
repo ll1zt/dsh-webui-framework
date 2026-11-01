@@ -954,3 +954,145 @@ describe('LayoutController tab titles', () => {
     expect(titleOf(controller, ref)).toBeUndefined()
   })
 })
+
+describe('LayoutController view', () => {
+  /** Whether the value and everything reachable through its properties is frozen. */
+  const frozenDeep = (value: unknown): boolean =>
+    typeof value !== 'object' || value === null || (Object.isFrozen(value) && Object.values(value).every(frozenDeep))
+
+  it('A1 getSnapshot returns the same frozen layout until an action changes it, and the view has no write method', async () => {
+    const { controller } = await setup(
+      [meta('a'), meta('b')],
+      [presetOf('p', 0, row([pane(0, ['a']), pane(0, ['b'])], [px(260), FR]))],
+    )
+    const { view } = controller
+    const { getSnapshot } = view
+    const first = getSnapshot()
+
+    expect(controller.view).toBe(view)
+    expect(getSnapshot()).toBe(first)
+    expect(first).toEqual(controller.getSnapshot().layout)
+    expect(frozenDeep(first)).toBe(true)
+    expect(Object.isFrozen(first.root)).toBe(true)
+    for (const name of ['open', 'close', 'activate', 'resize', 'resetToPreset', 'replaceLayout', 'setTabTitle']) {
+      expect(view).not.toHaveProperty(name)
+    }
+
+    controller.actions.setTabTitle({ blockId: 'a', contentId: '' }, { en: 'titled' })
+    expect(getSnapshot()).toBe(first)
+
+    controller.actions.resize({ blockId: 'a' }, px(300))
+    const second = getSnapshot()
+    expect(second).not.toBe(first)
+    expect(second).toEqual(controller.getSnapshot().layout)
+    expect(frozenDeep(second)).toBe(true)
+    expect(getSnapshot()).toBe(second)
+  })
+
+  it('A2 a listener hears an open, a replaceLayout and a registry repair of the layout once each', async () => {
+    const { controller, registry, owner } = await setup([meta('a')])
+    const dispose = registry.registerBlock(owner, meta('x'), Component)
+    const listener = vi.fn()
+    const { subscribe } = controller.view
+    subscribe(listener)
+
+    controller.actions.open({ blockId: 'a' })
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    controller.replaceLayout(layoutOf(pane(0, ['a'], ['x'])), true)
+    expect(tabsOf(controller.getSnapshot())).toEqual(['a', 'x'])
+    expect(listener).toHaveBeenCalledTimes(1)
+    listener.mockClear()
+
+    dispose()
+    expect(tabsOf(controller.getSnapshot())).toEqual(['a'])
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('A2 a listener hears settle dropping a block that never registered', async () => {
+    const { controller } = await setup([meta('a')])
+    controller.replaceLayout(layoutOf(pane(0, ['a'], ['ghost'])), false)
+    const listener = vi.fn()
+    controller.view.subscribe(listener)
+
+    controller.settle()
+
+    expect(tabsOf(controller.getSnapshot())).toEqual(['a'])
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  it('A2 a block list change that leaves the layout as it is notifies no one, and a disposed listener hears nothing more', async () => {
+    const { controller, registry, owner } = await setup([meta('a')])
+    controller.actions.open({ blockId: 'a' })
+    const before = controller.view.getSnapshot()
+    const stopped = vi.fn()
+    const kept = vi.fn()
+    const stop = controller.view.subscribe(stopped)
+    controller.view.subscribe(kept)
+
+    registry.registerBlock(owner, meta('late'), Component)
+
+    expect(controller.getSnapshot().blocks.map((block) => block.meta.id)).toEqual(['a', 'late'])
+    expect(controller.view.getSnapshot()).toBe(before)
+    expect(stopped).not.toHaveBeenCalled()
+    expect(kept).not.toHaveBeenCalled()
+
+    stop()
+    controller.actions.open({ blockId: 'late' })
+    expect(kept).toHaveBeenCalledTimes(1)
+    expect(stopped).not.toHaveBeenCalled()
+  })
+
+  it('A3 isOpen is true for a tab in the layout and isActive only for the active tab of its pane', async () => {
+    const { controller } = await setup([meta('a'), meta('b'), meta('free')])
+    controller.actions.open({ blockId: 'a' })
+    controller.actions.open({ blockId: 'b' })
+    controller.actions.activate({ blockId: 'a' })
+    const { view } = controller
+
+    expect([view.isOpen({ blockId: 'a' }), view.isActive({ blockId: 'a' })]).toEqual([true, true])
+    expect([view.isOpen({ blockId: 'b' }), view.isActive({ blockId: 'b' })]).toEqual([true, false])
+    expect([view.isOpen({ blockId: 'free' }), view.isActive({ blockId: 'free' })]).toEqual([false, false])
+    expect([view.isOpen({ blockId: 'ghost' }), view.isActive({ blockId: 'ghost' })]).toEqual([false, false])
+
+    controller.actions.activate({ blockId: 'b' })
+    expect([view.isActive({ blockId: 'a' }), view.isActive({ blockId: 'b' })]).toEqual([false, true])
+    controller.actions.close({ blockId: 'b' })
+    expect([view.isOpen({ blockId: 'b' }), view.isActive({ blockId: 'b' })]).toEqual([false, false])
+  })
+
+  it('A3 a multi-instance block is judged per contentId, a single-instance block ignores it', async () => {
+    const { controller } = await setup([meta('a'), meta('b'), meta('m', { multiInstance: true })])
+    controller.actions.open({ blockId: 'a' })
+    controller.actions.open({ blockId: 'b' })
+    controller.actions.open({ blockId: 'm', contentId: 'one' })
+    controller.actions.open({ blockId: 'm', contentId: 'two' })
+    controller.actions.activate({ blockId: 'm', contentId: 'one' })
+    const { view } = controller
+
+    expect([
+      view.isOpen({ blockId: 'm', contentId: 'one' }),
+      view.isActive({ blockId: 'm', contentId: 'one' }),
+    ]).toEqual([true, true])
+    expect([
+      view.isOpen({ blockId: 'm', contentId: 'two' }),
+      view.isActive({ blockId: 'm', contentId: 'two' }),
+    ]).toEqual([true, false])
+    expect([
+      view.isOpen({ blockId: 'm', contentId: 'three' }),
+      view.isActive({ blockId: 'm', contentId: 'three' }),
+    ]).toEqual([false, false])
+    expect([view.isOpen({ blockId: 'm' }), view.isActive({ blockId: 'm' })]).toEqual([false, false])
+
+    expect([
+      view.isOpen({ blockId: 'b', contentId: 'any' }),
+      view.isActive({ blockId: 'b', contentId: 'any' }),
+    ]).toEqual([true, false])
+    controller.actions.activate({ blockId: 'a' })
+    expect([
+      view.isOpen({ blockId: 'a', contentId: 'any' }),
+      view.isActive({ blockId: 'a', contentId: 'any' }),
+    ]).toEqual([true, true])
+  })
+})
