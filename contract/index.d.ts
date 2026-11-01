@@ -134,6 +134,28 @@ export interface BlockLayoutActions {
   resetToPreset(): LayoutActionResult
 }
 
+/**
+ * A read-only view of the layout, for blocks that need to know what is open. It has no write method: change the layout
+ * through `BlockInstanceProps.layout`.
+ */
+export interface LayoutView {
+  /**
+   * The current layout. The same object while the layout does not change (so it suits `useSyncExternalStore`), and deeply
+   * frozen. A new tab title or a change of the registered blocks that leaves the layout as it is returns the same object.
+   */
+  getSnapshot(): WebuiLayout
+  /**
+   * Calls `listener` once after each change of the layout object, whatever caused it: a layout action, a repair after
+   * blocks (un)register, a loaded layout or the registry settling. A change of the block list alone that leaves the layout
+   * as it is calls nobody. The returned disposer stops the listening.
+   */
+  subscribe(listener: () => void): Disposer
+  /** Whether the layout has the tab `target` names. A single-instance block ignores `contentId`; `contentId` defaults to `''`; an unregistered block is never open. */
+  isOpen(target: BlockTarget): boolean
+  /** Whether the tab `target` names is open and is the active tab of its pane. */
+  isActive(target: BlockTarget): boolean
+}
+
 /** Props every block instance receives. */
 export interface BlockInstanceProps {
   blockId: string
@@ -142,6 +164,8 @@ export interface BlockInstanceProps {
   layout: BlockLayoutActions
   /** This tab's own handle; the same object for the same tab across renders. */
   tab: BlockTabHandle
+  /** A read-only view of the layout; the same object for every block and every render. */
+  view: LayoutView
 }
 
 /** What a block instance can do to its own tab. */

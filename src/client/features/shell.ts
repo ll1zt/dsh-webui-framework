@@ -37,6 +37,7 @@ function apply(ctx: Context): void {
       inject: (): AppInject => ({
         hooks: { dock: controller, locale: ctx.locale, errors },
         dockActions: controller.actions,
+        layoutView: controller.view,
         retryBlock: (blockId: string): void => {
           if (registry.remount(blockId)) errors.clear(blockId)
         },

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react'
 import type { LocaleSnapshot } from '@deepseek-ai/dsh-client-locale/client'
 import type { InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
-import type { BlockLayoutActions, BlockInstanceProps, BlockMeta } from '@lllzt/dsh-webui-framework/contract'
+import type { BlockLayoutActions, BlockInstanceProps, BlockMeta, LayoutView } from '@lllzt/dsh-webui-framework/contract'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { AppErrorBoundary } from '../../ui/shell/ErrorBoundary.tsx'
 import { DockView } from '../../ui/shell/DockView.tsx'
@@ -22,6 +22,7 @@ export interface AppInject {
     errors: ObservableSnapshot<ReadonlyMap<string, BlockFailure>>
   }
   dockActions: BlockLayoutActions
+  layoutView: LayoutView
   retryBlock: (blockId: string) => void
 }
 
@@ -40,6 +41,7 @@ export function App({
   useLocale,
   useErrors,
   dockActions,
+  layoutView,
   retryBlock,
   renderSlot,
   SessionProvider,
@@ -59,6 +61,7 @@ export function App({
         <DockView
           snapshot={snapshot}
           actions={dockActions}
+          view={layoutView}
           renderBlock={renderBlock}
           t={t}
           language={language}

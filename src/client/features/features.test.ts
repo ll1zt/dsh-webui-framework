@@ -378,3 +378,22 @@ describe('layout persistence through optional services', () => {
     expect(tabs()).toEqual(['ghost', 'a'])
   })
 })
+
+describe('layout view through the root seat', () => {
+  it('A5 the root inject face carries a layoutView reading the layout the dock hook holds', async () => {
+    const fake = createFakeContext()
+    const root = new Context()
+    root.provide('slots', fake.slots)
+    root.provide('locale', fake.locale)
+    await root.plugin(featureNamed('shell'))
+    const slots: FakeSlots = fake.slots
+    const inject = slots.entries('root')[0]?.options.inject
+    if (typeof inject !== 'function') throw new Error('the root registration has no inject factory')
+    const face = inject() as {
+      hooks: { dock: { getSnapshot(): { layout: unknown } } }
+      layoutView: { getSnapshot(): unknown }
+    }
+
+    expect(face.layoutView.getSnapshot()).toEqual(face.hooks.dock.getSnapshot().layout)
+  })
+})
