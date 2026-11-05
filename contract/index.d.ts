@@ -5,9 +5,8 @@
  * import fails to compile. Wait for the service with `ctx.inject(['webuiLayout'], cb)` and register
  * blocks and presets inside `cb`.
  *
- * A block component receives `BlockInstanceProps` plus the standard props the host passes to the
- * slot it renders in (a webui.block.* slot). Those host props are not re-typed here; read them off
- * the slot's own props type.
+ * A session block reads the session through `props.session` and no longer reads the host's standard
+ * props. From 0.3.0 a session block receives only `SessionBlockProps`.
  *
  * Registering a block straight through `slots.register` bypasses the de-duplication that
  * `registerBlock` performs.
@@ -51,10 +50,8 @@ export interface LocalizedText {
   readonly [language: string]: string
 }
 
-/** Static description of a block, given once at registration. */
-export interface BlockMeta {
+interface BlockMetaBase {
   id: string
-  scope: BlockScope
   /** Blocks are ordered by `priority` ascending, ties by `id` in code-point order: lower comes first. */
   priority: number
   title: LocalizedText
@@ -62,6 +59,19 @@ export interface BlockMeta {
   multiInstance: boolean
   defaultSize?: LayoutSize
 }
+
+/** A block shown once for the whole page; its component takes `BlockInstanceProps`. */
+export interface RootBlockMeta extends BlockMetaBase {
+  scope: 'root'
+}
+
+/** A block shown for the current main session; its component takes `SessionBlockProps`. */
+export interface SessionBlockMeta extends BlockMetaBase {
+  scope: 'session'
+}
+
+/** Static description of a block, given once at registration; `scope` decides the component type. */
+export type BlockMeta = RootBlockMeta | SessionBlockMeta
 
 /** One open tab: a block and the content it shows. */
 export interface BlockRef {
@@ -210,13 +220,53 @@ export interface BlockTabHandle {
 /** Returns `false` to veto closing the tab it guards. */
 export type CloseGuard = () => boolean
 
+/** The part of the host's session state a block may read. */
+export interface WebuiSessionState {
+  sessionId: string
+  running: boolean
+  blank: boolean
+  removed: boolean
+  openState: 'cold' | 'loading' | 'open' | 'error'
+  lastAgentError: string | null
+}
+
+/** The current main session as a block sees it; the same object for the same session across renders. */
+export interface WebuiSession {
+  readonly sessionId: string
+  /**
+   * A hook: call it while rendering, in the same order every render. The block re-renders only when the selected
+   * value changes, by `Object.is` or by `equal` when given.
+   */
+  useState<T>(select: (state: WebuiSessionState) => T, equal?: (a: T, b: T) => boolean): T
+  /**
+   * Appends one message in `'queue'` mode. Resolves to `true` when the host accepted it, and to `false` when the host
+   * refused, threw, the session is gone or the block has unmounted. Never rejects.
+   */
+  send(text: string): Promise<boolean>
+  /**
+   * Stops the running turn, under the same rules as `send`: `true` when the host accepted it, `false` when the host
+   * refused, threw, the session is gone or the block has unmounted. Never rejects.
+   */
+  stop(): Promise<boolean>
+}
+
+/** Props a `session`-scope block receives. */
+export interface SessionBlockProps extends BlockInstanceProps {
+  session: WebuiSession
+}
+
 export type BlockComponent = ComponentType<BlockInstanceProps>
+
+/** The component type a block of `M`'s scope takes. */
+export type BlockComponentOf<M extends BlockMeta> = ComponentType<
+  M extends SessionBlockMeta ? SessionBlockProps : BlockInstanceProps
+>
 
 /** Undoes a registration. */
 export type Disposer = () => void
 
 export interface WebuiLayoutService {
-  registerBlock(meta: BlockMeta, component: BlockComponent): Disposer
+  registerBlock<M extends BlockMeta>(meta: M, component: BlockComponentOf<M>): Disposer
   registerPreset(preset: LayoutPreset): Disposer
 }
 

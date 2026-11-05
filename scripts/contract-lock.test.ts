@@ -63,14 +63,20 @@ afterEach(() => {
 })
 
 describe('checkContractLock on the repository', () => {
-  it('A1 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.2.0 and the contract hash', () => {
+  it('A1 A4 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.3.0 and the contract hash', () => {
     expect(checkContractLock(ROOT)).toEqual([])
 
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
-    expect(manifest.version).toBe('0.2.0')
-    expect(read(join(ROOT, 'CHANGELOG.md'))).toMatch(/^## 0\.2\.0\b/m)
+    expect(manifest.version).toBe('0.3.0')
+    const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
+      version: string
+      packages: { '': { version: string } }
+    }
+    expect(lockfile.version).toBe('0.3.0')
+    expect(lockfile.packages[''].version).toBe('0.3.0')
+    expect(read(join(ROOT, 'CHANGELOG.md'))).toMatch(/^## 0\.3\.0\b/m)
     expect(JSON.parse(read(join(ROOT, 'contract/lock.json')))).toEqual({
-      version: '0.2.0',
+      version: '0.3.0',
       sha256: contractHash(ROOT),
     })
   })
