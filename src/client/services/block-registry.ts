@@ -3,6 +3,7 @@ import { Service, type Context } from '@deepseek-ai/cordis'
 import { createElement, type FunctionComponent } from 'react'
 import type {
   BlockComponent,
+  BlockComponentOf,
   BlockInstanceProps,
   BlockMeta,
   Disposer,
@@ -323,8 +324,9 @@ export class WebuiLayout extends Service implements WebuiLayoutService {
     super(ctx, 'webuiLayout')
   }
 
-  registerBlock(meta: BlockMeta, component: BlockComponent): Disposer {
-    return this.registry.registerBlock(this.ctx, meta, component)
+  registerBlock<M extends BlockMeta>(meta: M, component: BlockComponentOf<M>): Disposer {
+    // The registry stores every block as BlockComponent; scope only narrows the props type at this boundary.
+    return this.registry.registerBlock(this.ctx, meta, component as BlockComponent)
   }
 
   registerPreset(preset: LayoutPreset): Disposer {
