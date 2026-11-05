@@ -1,6 +1,6 @@
 /** Block and preset registry behind the `webuiLayout` service: validation, ordering, duplicate diagnostics. */
 import { Service, type Context } from '@deepseek-ai/cordis'
-import { createElement, type FunctionComponent } from 'react'
+import { createElement, type ComponentType, type FunctionComponent } from 'react'
 import type {
   BlockComponent,
   BlockComponentOf,
@@ -8,10 +8,13 @@ import type {
   BlockMeta,
   Disposer,
   LayoutPreset,
+  SessionBlockProps,
   WebuiLayoutService,
 } from '@lllzt/dsh-webui-framework/contract'
 import { WEBUI_SLOT_KEYS } from '../types.ts'
 import { LOG_PREFIX } from './log-prefix.ts'
+import type { WebuiSessionInject } from './session-adapter.ts'
+import { bridgeSessionBlock } from './session-bridge.tsx'
 
 /** A rejected duplicate registration; `kept` and `rejected` are the plugin names of the two registrants. */
 export interface WebuiDiagnostic {
@@ -133,6 +136,8 @@ export class BlockRegistry {
   readonly #remounts = new Map<string, () => void>()
   readonly #diagnostics: WebuiDiagnostic[] = []
   readonly #listeners = new Set<() => void>()
+  /** Factory the session feature installs; session entries read it when their inject runs, not when they register. */
+  #sessionInject: ((sessionId: string) => WebuiSessionInject) | undefined = undefined
 
   /**
    * Register a block and put its component into the slot of `meta.scope`. A slot the host has not declared yet
@@ -159,14 +164,39 @@ export class BlockRegistry {
       this.#remounts.delete(meta.id)
       this.#notify()
     }
-    const slotComponent = asFunctionComponent(component)
     const slotKey = WEBUI_SLOT_KEYS[meta.scope]
     let unregister: (() => void) | undefined
-    const mount = (): void => {
-      unregister = owner.slots.register(
-        { name: slotKey, id: meta.id, priority: meta.priority, label: meta.title.en },
-        slotComponent,
-      )
+    // The wrapper and its inject are created once per registration, outside mount, so remount reuses both.
+    // Creating the wrapper during render would change the component type and remount the block.
+    let mount: () => void
+    if (meta.scope === 'session') {
+      // The registry stores every block as BlockComponent. A session component's props are a subtype, so the
+      // class form is not assignable without a cast: its instance `props` would lack `session`.
+      const bridge = bridgeSessionBlock(component as ComponentType<SessionBlockProps>)
+      const blockId = meta.id
+      const inject = (sessionId: string): WebuiSessionInject => {
+        const factory = this.#sessionInject
+        if (factory === undefined) {
+          throw new Error(`${LOG_PREFIX} block "${blockId}" has no sessions service`)
+        }
+        return factory(sessionId)
+      }
+      mount = (): void => {
+        // One cast: `register` demands a component of `ComposedProps` (host standard props, which ui-session merges
+        // in and this compilation does not see, plus the inject face). The bridge only declares the props it reads.
+        unregister = owner.slots.register(
+          { name: WEBUI_SLOT_KEYS.session, id: meta.id, priority: meta.priority, label: meta.title.en, inject },
+          bridge as never,
+        )
+      }
+    } else {
+      const slotComponent = asFunctionComponent(component)
+      mount = (): void => {
+        unregister = owner.slots.register(
+          { name: slotKey, id: meta.id, priority: meta.priority, label: meta.title.en },
+          slotComponent,
+        )
+      }
     }
     // The block joins #blocks only once its slot entry exists, so a registration that cannot mount leaves no tab behind.
     const adopt = (): void => {
@@ -232,6 +262,15 @@ export class BlockRegistry {
     if (remount === undefined) return false
     remount()
     return true
+  }
+
+  /**
+   * Install or clear the factory a session block's inject calls.
+   * Already registered blocks see the change on their next inject, without being registered again.
+   * @param factory - builds the inject face for a session id, or `undefined` when `sessions` is gone.
+   */
+  setSessionInject(factory: ((sessionId: string) => WebuiSessionInject) | undefined): void {
+    this.#sessionInject = factory
   }
 
   /**
