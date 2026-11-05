@@ -19,6 +19,13 @@ async function restricted(text: string, rel: string): Promise<number> {
   return (await restrictedLines(text, rel)).length
 }
 
+/** How many `@typescript-eslint/no-restricted-imports` reports `text` gets when it lives at `rel`. */
+async function restrictedTypeImports(text: string, rel: string): Promise<number> {
+  const [result] = await eslint.lintText(text, { filePath: join(ROOT, rel) })
+  return (result?.messages ?? []).filter((message) => message.ruleId === '@typescript-eslint/no-restricted-imports')
+    .length
+}
+
 describe('eslint single-exit guards', () => {
   it('A1 a test title not starting with A<n> is reported, A<n> titles are not, non-test files are skipped', async () => {
     expect(await restricted("it('TestFoo_A1 does x', () => {})", 'src/x.test.ts')).toBeGreaterThanOrEqual(1)
@@ -74,5 +81,16 @@ describe('eslint single-exit guards', () => {
   it('A8 the plugin id guard still applies in src/lib/layout-commands.ts', async () => {
     const literal = "export const id = '@lllzt/dsh-webui-framework'"
     expect(await restricted(literal, 'src/lib/layout-commands.ts')).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('host session type import guard', () => {
+  it('A9 import type of the host session controller is reported outside session-adapter.ts', async () => {
+    const text =
+      "import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'\nexport type S = ISessions"
+    for (const rel of ['src/client/x.ts', 'contract/index.d.ts', 'examples/hello-block/src/client.tsx']) {
+      expect(await restrictedTypeImports(text, rel), rel).toBe(1)
+    }
+    expect(await restrictedTypeImports(text, 'src/client/services/session-adapter.ts')).toBe(0)
   })
 })
