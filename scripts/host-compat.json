@@ -7,6 +7,8 @@
     "message-feedback",
     "session-log-download",
     "open-in-app",
+    "ui-file-actions",
+    "ui-context-menu",
     "workspace",
     "session-reference",
     "file-reference-local",
