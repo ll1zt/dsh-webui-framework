@@ -110,6 +110,31 @@ export default tseslint.config(
     },
   },
   {
+    // Host session types stay in the one adapter (PRINCIPLES §1.4). Its own block, so the core
+    // `no-restricted-imports` lists above are left untouched; this rule also sees `import type`.
+    files: ['src/**/*.{ts,tsx}', 'contract/**/*.ts', 'examples/**/*.{ts,tsx}'],
+    ignores: ['src/client/services/session-adapter.ts', 'src/client/services/session-adapter.test.ts'],
+    rules: {
+      '@typescript-eslint/no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: [
+                '@deepseek-ai/dsh-api-session-controller',
+                '@deepseek-ai/dsh-api-session-controller/*',
+                '@deepseek-ai/dsh-api-session-controller/**',
+              ],
+              allowTypeImports: false,
+              message:
+                'Host session types are imported only in src/client/services/session-adapter.ts, which translates them into the contract.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     files: ['**/*.{ts,tsx,js,mjs}'],
     ignores: ['scripts/plugin-constants.ts', 'scripts/fixtures/**', '**/*.test.*'],
     rules: { 'no-restricted-syntax': ['error', ...PLUGIN_ID_GUARDS] },
