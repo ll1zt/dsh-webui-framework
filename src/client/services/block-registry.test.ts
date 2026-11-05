@@ -2,10 +2,11 @@
 import { Context } from '@deepseek-ai/cordis'
 import type { BlockComponent, BlockMeta, LayoutPreset, WebuiLayout } from '@lllzt/dsh-webui-framework/contract'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createFakeContext, type FakeContext } from '../../test/fake-ctx.ts'
+import { createFakeContext, type FakeContext, type FakeSlots } from '../../test/fake-ctx.ts'
 import { FEATURES } from '../features/index.ts'
 import { BlockRegistry, compareByPriorityThenId } from './block-registry.ts'
 import { LOG_PREFIX } from './log-prefix.ts'
+import type { WebuiSessionInject } from './session-adapter.ts'
 
 const ROOT_KEY = 'webui.block.root'
 const SESSION_KEY = 'webui.block.session'
@@ -576,5 +577,96 @@ describe('BlockRegistry remount', () => {
     expect(fake.slots.entries(ROOT_KEY).every((entry, index) => entry === entries[index])).toBe(true)
     expect(registry.blocks().map((block) => block.meta.id)).toEqual(['X'])
     foreign()
+  })
+})
+
+describe('BlockRegistry session inject', () => {
+  /** The message of the Error `run` throws; fails when it throws nothing or not an Error. */
+  function errorMessage(run: () => void): string {
+    try {
+      run()
+    } catch (error) {
+      expect(error).toBeInstanceOf(Error)
+      return error instanceof Error ? error.message : ''
+    }
+    throw new Error('expected an error')
+  }
+
+  it('A1 a session block is registered as a bridge whose inject reads the current session factory', async () => {
+    const { fake, join } = setup()
+    const registry = new BlockRegistry()
+    const alpha = await join('alpha')
+    // 'note-9' is not a substring of LOG_PREFIX or "sessions service", so the message check is the block id.
+    registry.registerBlock(alpha.ctx, meta('note-9', 1, 'session'), Component)
+
+    const slots: FakeSlots = fake.slots
+    const entry = slots.entries(SESSION_KEY)[0]
+    expect(entry?.component).not.toBe(Component)
+    expect(typeof entry?.component).toBe('function')
+    const inject = entry?.options.inject
+    expect(typeof inject).toBe('function')
+    if (typeof inject !== 'function') throw new Error('the session entry has no inject')
+    const call = inject as (sessionId: string) => WebuiSessionInject
+
+    const unset = errorMessage(() => {
+      call('s1')
+    })
+    expect(unset).toContain(LOG_PREFIX)
+    expect(unset).toContain('note-9')
+    expect(unset).toContain('sessions service')
+
+    const forS1 = { marker: 's1' } as unknown as WebuiSessionInject
+    const forS2 = { marker: 's2' } as unknown as WebuiSessionInject
+    const factory = vi.fn((sessionId: string): WebuiSessionInject => (sessionId === 's2' ? forS2 : forS1))
+    registry.setSessionInject(factory)
+
+    expect(call('s1')).toBe(forS1)
+    expect(call('s2')).toBe(forS2)
+    expect(factory.mock.calls).toEqual([['s1'], ['s2']])
+
+    registry.setSessionInject(undefined)
+    const cleared = errorMessage(() => {
+      call('s1')
+    })
+    expect(cleared).toContain(LOG_PREFIX)
+    expect(cleared).toContain('note-9')
+    expect(cleared).toContain('sessions service')
+    expect(factory).toHaveBeenCalledTimes(2)
+  })
+
+  it('A2 a root block enters its slot as the contributor function component itself, without inject', async () => {
+    const { fake, join } = setup()
+    const registry = new BlockRegistry()
+    const alpha = await join('alpha')
+
+    registry.registerBlock(alpha.ctx, meta('r1', 1, 'root'), Component)
+
+    const slots: FakeSlots = fake.slots
+    const entry = slots.entries(ROOT_KEY)[0]
+    expect(entry?.component).toBe(Component)
+    expect(entry?.options.inject).toBeUndefined()
+  })
+
+  it('A5 registry.remount re-registers the same session wrapper and the same inject exactly once', async () => {
+    const { fake, join } = setup()
+    const registry = new BlockRegistry()
+    const alpha = await join('alpha')
+    const slots: FakeSlots = fake.slots
+    const register = vi.spyOn(slots, 'register')
+
+    registry.registerBlock(alpha.ctx, meta('pane-1', 1, 'session'), Component)
+    const registeredCalls = register.mock.calls.length
+    const first = slots.entries(SESSION_KEY)[0]
+    expect(first?.component).not.toBe(Component)
+    expect(typeof first?.options.inject).toBe('function')
+
+    expect(registry.remount('pane-1')).toBe(true)
+
+    expect(register).toHaveBeenCalledTimes(registeredCalls + 1)
+    const next = slots.entries(SESSION_KEY)
+    expect(next).toHaveLength(1)
+    expect(next[0]).not.toBe(first)
+    expect(next[0]?.component).toBe(first?.component)
+    expect(next[0]?.options.inject).toBe(first?.options.inject)
   })
 })
