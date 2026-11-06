@@ -60,7 +60,7 @@ jobs:
           DSH_VERSION: ${{ github.event.inputs.version }}
         run: |
           set -eu
-          output="$(nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-bump.ts ${DSH_VERSION:+--version "$DSH_VERSION"}')"
+          output="$(nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-bump.ts --write ${DSH_VERSION:+--version "$DSH_VERSION"}')"
           line="$(printf '%s\n' "$output" | tail -n 1)"
           echo "$line"
           if printf '%s' "$line" | grep -q '"changed":true'; then
