@@ -87,7 +87,9 @@ const failed = (step: 'install' | 'gate' | 'host-compat'): DshRunOutcome => ({
 const passed: DshRunOutcome = { ok: true, version: VERSION, branch: BRANCH }
 
 describe('reportRun on failure', () => {
-  it('A3 opens an issue with the failed step and the run link when none with that title is open', async () => {
+  // Guard id is this exact title. It cannot also match the A<n> title prefix.
+  // eslint-disable-next-line no-restricted-syntax
+  it('A4:A3 opens an issue with the failed step and the run link when none with that title is open', async () => {
     const fake = fakeForge({
       issues: [
         { number: 3, title: '另一个问题', state: 'open' },
@@ -165,6 +167,99 @@ describe('reportRun on failure', () => {
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).not.toContain(TOKEN)
     expect((error as Error).message).toContain('500')
+  })
+
+  // Same ERESOLVE shape as scripts/npm-summary.test.ts: cordis 4.1.0 vs ~4.0.6-alpha.1, plus shell-env.
+  const ERESOLVE_LOG = [
+    'npm error code ERESOLVE',
+    'npm error ERESOLVE could not resolve',
+    'npm error',
+    'npm error While resolving: @lllzt/dsh-webui-framework@0.4.0',
+    'npm error Found: @deepseek-ai/dsh-web-app@0.2.2-alpha.2',
+    'npm error node_modules/@deepseek-ai/dsh-web-app',
+    'npm error   dev @deepseek-ai/dsh-web-app@"0.2.2-alpha.2" from the root project',
+    'npm error',
+    'npm error Could not resolve dependency:',
+    'npm error peer @deepseek-ai/dsh-shell-env@"0.2.2-alpha.3" from @deepseek-ai/dsh-web-app@0.2.2-alpha.2',
+    'npm error node_modules/@deepseek-ai/dsh-web-app',
+    'npm error   dev @deepseek-ai/dsh-web-app@"0.2.2-alpha.2" from the root project',
+    'npm error',
+    'npm error Conflicting peer dependency: @deepseek-ai/dsh-shell-env@0.2.2-alpha.3',
+    'npm error node_modules/@deepseek-ai/dsh-shell-env',
+    'npm error   peer @deepseek-ai/dsh-shell-env@"0.2.2-alpha.3" from @deepseek-ai/dsh-web-app@0.2.2-alpha.2',
+    'npm error   node_modules/@deepseek-ai/dsh-web-app',
+    'npm error     dev @deepseek-ai/dsh-web-app@"0.2.2-alpha.2" from the root project',
+    'npm error',
+    'npm error Found: @deepseek-ai/cordis@4.1.0',
+    'npm error node_modules/@deepseek-ai/cordis',
+    'npm error   @deepseek-ai/cordis@"4.1.0" from the root project',
+    'npm error',
+    'npm error Could not resolve dependency:',
+    'npm error peer @deepseek-ai/cordis@"~4.0.6-alpha.1" from @deepseek-ai/dsh-web-app@0.2.2-alpha.2',
+    'npm error node_modules/@deepseek-ai/dsh-web-app',
+    'npm error   dev @deepseek-ai/dsh-web-app@"0.2.2-alpha.2" from the root project',
+    'npm error',
+    'npm error Conflicting peer dependency: @deepseek-ai/cordis@4.0.6-alpha.1',
+    'npm error node_modules/@deepseek-ai/cordis',
+    'npm error   peer @deepseek-ai/cordis@"~4.0.6-alpha.1" from @deepseek-ai/dsh-web-app@0.2.2-alpha.2',
+    'npm error   node_modules/@deepseek-ai/dsh-web-app',
+    'npm error     dev @deepseek-ai/dsh-web-app@"0.2.2-alpha.2" from the root project',
+    'npm error',
+    'npm error Fix the upstream dependency conflict, or retry',
+    'npm error this command with --force or --legacy-peer-deps',
+    'npm error to accept an incorrect (and potentially broken) dependency resolution.',
+    'npm error',
+    'npm error /home/runner/.npm/_logs/2026-04-01T00_00_00_000Z-debug-0.log',
+    'npm error https://registry.example.com/@deepseek-ai/cordis?token=ghp_0123456789abcdef0123456789abcdef01234567',
+    'npm error cookie=sessionid=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+    `npm error token=${TOKEN}`,
+  ].join('\n')
+
+  const SUMMARY =
+    'ERESOLVE: 3 conflicting package(s): @deepseek-ai/cordis@4.1.0, @deepseek-ai/dsh-shell-env@0.2.2-alpha.3, @deepseek-ai/dsh-web-app@0.2.2-alpha.2'
+
+  const BULLETS = [
+    '- @deepseek-ai/cordis: 4.1.0, ~4.0.6-alpha.1, 4.0.6-alpha.1',
+    '- @deepseek-ai/dsh-shell-env: 0.2.2-alpha.3',
+    '- @deepseek-ai/dsh-web-app: 0.2.2-alpha.2',
+  ]
+
+  it('A3 install failure issue includes the npm summary and conflict bullets, and a gate failure does not', async () => {
+    const logged = (step: 'install' | 'gate') =>
+      ({
+        ok: false as const,
+        version: VERSION,
+        step,
+        runUrl: RUN_URL,
+        npmLog: ERESOLVE_LOG,
+      }) satisfies DshRunOutcome
+
+    const install = fakeForge()
+    const created = await reportRun(logged('install'), install.forge)
+    expect(created.action).toBe('issue-created')
+    expect(install.writes()[0]?.body?.title).toBe(ISSUE_TITLE)
+    const installBody = String(install.writes()[0]?.body?.body)
+    expect(installBody).toContain(`失败的步骤：install`)
+    expect(installBody).toContain(RUN_URL)
+    expect(installBody).toContain(SUMMARY)
+    expect(installBody.indexOf(SUMMARY)).toBeLessThan(installBody.indexOf(BULLETS[0] ?? ''))
+    expect(installBody.match(/^- @\S+: .+$/gm)).toEqual(BULLETS)
+    const again = await reportRun(logged('install'), install.forge)
+    expect(again).toEqual({ action: 'issue-commented', number: created.number })
+    expect(install.issues.filter((issue) => issue.title === ISSUE_TITLE)).toHaveLength(1)
+    for (const request of install.requests) {
+      const exposed = request.path + request.query.toString() + JSON.stringify(request.body ?? {})
+      expect(exposed).not.toContain(TOKEN)
+      expect(exposed).not.toContain('ghp_0123456789abcdef0123456789abcdef01234567')
+      expect(exposed).not.toContain('cookie=')
+      expect(exposed).not.toContain('?token=')
+      expect(exposed).not.toContain('/home/')
+    }
+
+    const gate = fakeForge()
+    await reportRun(logged('gate'), gate.forge)
+    expect(gate.writes()[0]?.body?.title).toBe(ISSUE_TITLE)
+    expect(String(gate.writes()[0]?.body?.body)).toBe(`失败的步骤：gate\n\n运行：${RUN_URL}\n`)
   })
 })
 

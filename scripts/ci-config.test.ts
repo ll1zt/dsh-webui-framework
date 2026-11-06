@@ -180,6 +180,25 @@ describe('dsh-alpha 工作流', () => {
     expect(region).toMatch(/prune|裁剪|@deepseek-ai|删掉|删除/i)
   })
 
+  it('A3 install redirects npm output to a log the failure report passes, and git add does not include it', () => {
+    const { text, steps } = loadAlpha()
+    const installRun = steps.find((step) => step.name === 'npm install')?.run ?? ''
+    const reportRun = steps.find((step) => step.name === 'Report failure')?.run ?? ''
+
+    expect(installRun).toContain('npm install')
+    expect(installRun).toMatch(/(?:>\s*["']?npm-install\.log|tee\b[^\n]*npm-install\.log)/)
+    expect(reportRun).toContain('scripts/dsh-report.ts')
+    expect(reportRun).toContain('--npm-log')
+    expect(reportRun).toContain('npm-install.log')
+
+    const gitAdds = text.split('\n').filter((line) => line.includes('git add'))
+    expect(gitAdds.length).toBeGreaterThan(0)
+    for (const line of gitAdds) {
+      expect(line).not.toContain('npm-install.log')
+      expect(line).not.toMatch(/git add\s+(?:-A|--all|\.)\b/)
+    }
+  })
+
   it('A5 a failed install, gate or host-compat step is reported by a failure() step that calls dsh-report', () => {
     const { steps, indexOf } = loadAlpha()
     const failure = steps.findIndex(
