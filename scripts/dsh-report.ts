@@ -7,7 +7,7 @@ import { summarizeNpmError } from './npm-summary.ts'
  * for that dsh version, a pass opens the upgrade PR from the branch the workflow pushed.
  *
  *   node scripts/dsh-report.ts --pass <version> [--report <path>]
- *   node scripts/dsh-report.ts --fail <install|gate|host-compat> <version> <run-url> [--npm-log <path>] [--report <path>]
+ *   node scripts/dsh-report.ts --fail <install|gate|host-compat|smoke> <version> <run-url> [--npm-log <path>] [--report <path>]
  *
  * `--npm-log` is the install step's npm output. On an install failure its conflict summary is
  * appended to the issue; the raw log (and anything token-like in it) is not. `--report` is a
@@ -22,7 +22,7 @@ export type DshRunOutcome =
   | {
       ok: false
       version: string
-      step: 'install' | 'gate' | 'host-compat'
+      step: 'install' | 'gate' | 'host-compat' | 'smoke'
       runUrl: string
       npmLog?: string
       report?: string
@@ -35,7 +35,7 @@ export interface Forge {
   fetch: typeof fetch
 }
 
-const STEPS = ['install', 'gate', 'host-compat'] as const
+const STEPS = ['install', 'gate', 'host-compat', 'smoke'] as const
 const PAGE_SIZE = 50
 const MAX_PAGES = 20
 
@@ -85,6 +85,7 @@ function appendReport(text: string, report: string | undefined): string {
 /** Issue body: the failed step and run link, plus the npm conflict summary when install captured a log. */
 function failureText(outcome: Extract<DshRunOutcome, { ok: false }>): string {
   const lines = [`失败的步骤：${outcome.step}`, '', `运行：${outcome.runUrl}`]
+  if (outcome.step === 'smoke') lines.push('', '失败的是冒烟。')
   if (outcome.step === 'install' && outcome.npmLog !== undefined) {
     const { summary, conflicts } = summarizeNpmError(outcome.npmLog)
     lines.push('', summary)
@@ -137,7 +138,7 @@ export async function reportRun(
 }
 
 const USAGE =
-  'usage: node scripts/dsh-report.ts --pass <version> [--report <path>] | --fail <install|gate|host-compat> <version> <run-url> [--npm-log <path>] [--report <path>]'
+  'usage: node scripts/dsh-report.ts --pass <version> [--report <path>] | --fail <install|gate|host-compat|smoke> <version> <run-url> [--npm-log <path>] [--report <path>]'
 
 interface Parsed {
   outcome: DshRunOutcome

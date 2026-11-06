@@ -177,6 +177,64 @@ jobs:
           set -eu
           nix develop . --no-write-lock-file --command bash -c 'node scripts/host-compat.ts'
 
+      - name: smoke
+        id: smoke
+        if: steps.bump.outputs.changed == 'true'
+        working-directory: source
+        env:
+          DSH_VERSION: ${{ matrix.version }}
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c '
+            set -euo pipefail
+            npm install --prefix .host-dsh --ignore-scripts "@deepseek-ai/dsh@${DSH_VERSION}"
+            pack_line="$(npm pack --pack-destination .host-dsh | tail -n 1)"
+            case "$pack_line" in
+              /*) tarball="$pack_line" ;;
+              *) tarball="$PWD/.host-dsh/$pack_line" ;;
+            esac
+            dsh_bin="$PWD/.host-dsh/node_modules/.bin/dsh"
+            home="$(mktemp -d)"
+            host_pid=""
+            cleanup() {
+              if [ -n "$host_pid" ]; then
+                kill "$host_pid" 2>/dev/null || true
+                wait "$host_pid" 2>/dev/null || true
+              fi
+            }
+            trap cleanup EXIT
+            node scripts/host-run.ts \
+              --dsh "$dsh_bin" \
+              --home "$home" \
+              --profile web-smoke \
+              --tarball "$tarball" \
+              --port 4571 >"$home/host-run.out" 2>"$home/host-run.err" &
+            host_pid=$!
+            ready=""
+            waited=0
+            while [ "$waited" -lt 240 ]; do
+              if grep -q baseUrl "$home/host-run.out" 2>/dev/null; then
+                ready=1
+                break
+              fi
+              if ! kill -0 "$host_pid" 2>/dev/null; then
+                echo "host-run exited before printing baseUrl" >&2
+                cat "$home/host-run.err" >&2 || true
+                exit 1
+              fi
+              sleep 1
+              waited=$((waited + 1))
+            done
+            if [ -z "$ready" ]; then
+              echo "timeout waiting for host-run baseUrl" >&2
+              cat "$home/host-run.err" >&2 || true
+              exit 1
+            fi
+            echo "host-run: ready"
+            test -f "$home/host-base-url"
+            node scripts/host-smoke.ts "$(cat "$home/host-base-url")"
+          '
+
       - name: Push branch
         if: success() && steps.bump.outputs.changed == 'true'
         working-directory: source
@@ -219,12 +277,14 @@ jobs:
           nix develop . --no-write-lock-file --command bash -c 'if [ -n "$DSH_REPORT" ]; then node scripts/dsh-report.ts --pass "$DSH_VERSION" --report "$DSH_REPORT"; else node scripts/dsh-report.ts --pass "$DSH_VERSION"; fi'
 
       - name: Report failure
-        if: failure() && steps.bump.outputs.changed == 'true' && (steps.install.outcome == 'failure' || steps.gate.outcome == 'failure' || steps.compat.outcome == 'failure')
+        if: failure() && steps.bump.outputs.changed == 'true' && (steps.install.outcome == 'failure' || steps.gate.outcome == 'failure' || steps.compat.outcome == 'failure' || steps.smoke.outcome == 'failure')
         working-directory: source
         env:
           DSH_VERSION: ${{ steps.bump.outputs.version }}
           INSTALL_OUTCOME: ${{ steps.install.outcome }}
           GATE_OUTCOME: ${{ steps.gate.outcome }}
+          COMPAT_OUTCOME: ${{ steps.compat.outcome }}
+          SMOKE_OUTCOME: ${{ steps.smoke.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_number }}
           DSH_ALPHA_TOKEN: ${{ secrets.DSH_ALPHA_TOKEN || github.token }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
@@ -235,6 +295,10 @@ jobs:
             export DSH_FAILED_STEP=install
           elif [ "$GATE_OUTCOME" = failure ]; then
             export DSH_FAILED_STEP=gate
+          elif [ "$COMPAT_OUTCOME" = failure ]; then
+            export DSH_FAILED_STEP=host-compat
+          elif [ "$SMOKE_OUTCOME" = failure ]; then
+            export DSH_FAILED_STEP=smoke
           else
             export DSH_FAILED_STEP=host-compat
           fi
