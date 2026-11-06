@@ -4,6 +4,20 @@
  * so tests can assert what `apply` registered and that disposal cleans it up.
  */
 import type { Context } from '@deepseek-ai/cordis'
+import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import type { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
+
+/**
+ * Host slot members the fake must keep. Deleting or renaming one of these keys fails typecheck and names that key.
+ * `spec` stays off this list: the fake's `spec` is a test inspection switch, not the host method.
+ */
+export type HostSlotSurface = Pick<SlotRegistry, 'register' | 'inject' | 'provideRoot' | 'onEntryError' | 'subscribe'>
+
+/** Host locale members the fake must keep. Deleting or renaming one of these keys fails typecheck and names that key. */
+export type HostLocaleSurface = Pick<LocaleRuntime, 'register' | 'bind'>
+
+/** Listener parameter of the host's `slots.onEntryError` (a stored entry or factory, not `unknown`). */
+type HostEntryErrorListener = Parameters<HostSlotSurface['onEntryError']>[0]
 
 /** One `slots.register` call, in the shape the slot ledger exposes it. */
 export interface FakeSlotRegistration {
@@ -34,11 +48,12 @@ export type EntryErrorListener = (
 ) => void
 
 /** `ctx.slots` recorder: registrations are kept per slot name until disposed. */
-export interface FakeSlots {
+export interface FakeSlots extends HostSlotSurface {
   register(options: Record<string, unknown>, component: unknown): () => void
   inject(key: string, callback: () => unknown): () => void
   provideRoot(contribution: unknown): () => void
-  onEntryError(listener: EntryErrorListener): () => void
+  /** Host listener shape, so a change to that parameter fails assignability here and names `onEntryError`. */
+  onEntryError(listener: HostEntryErrorListener): () => void
   /**
    * Test switch: when true, `register` refuses a key no entry has declared yet, the way the host does
    * (`a parent entry's children table must declare it`). Off by default, so tests that predate declarations
@@ -73,8 +88,16 @@ export interface FakeLocaleRegistration {
 }
 
 /** `ctx.locale` recorder. */
-export interface FakeLocale {
-  register(namespace: string, dictionaries: Record<string, Record<string, string>>): () => void
+export interface FakeLocale extends HostLocaleSurface {
+  /**
+   * Dictionary form the tests call. The second argument also accepts a locale id so this stays assignable to the
+   * host's `(ns, locale, dict)` overload; the recorder only stores the dictionary form.
+   */
+  register(
+    namespace: string,
+    dictionaries: Record<string, Record<string, string>> | string,
+    dict?: Record<string, string>,
+  ): () => void
   bind(namespace: string): (key: string) => string
   readonly registrations: readonly FakeLocaleRegistration[]
 }
@@ -116,7 +139,7 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
   const localeRegistrations: FakeLocaleRegistration[] = []
   const injected: { key: string; callback: () => unknown }[] = []
   const providedRoots: unknown[] = []
-  const entryErrorListeners: EntryErrorListener[] = []
+  const entryErrorListeners: HostEntryErrorListener[] = []
   const specs = new Map<string, unknown>()
   const declarationEpochs = new Map<string, number>()
   const declarationListeners = new Map<string, Set<() => void>>()
@@ -261,7 +284,10 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
       })
     },
     reportEntryError(key, registration, error, info) {
-      for (const listener of [...entryErrorListeners]) listener(key, registration, error, info)
+      for (const listener of [...entryErrorListeners]) {
+        // Test triggers pass plain objects; the host types this argument as StoredEntry | StoredFactory.
+        ;(listener as EntryErrorListener)(key, registration, error, info)
+      }
     },
     entries(key) {
       return registrations.filter((registration) => registration.options.name === key)
@@ -276,7 +302,9 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
 
   const locale: FakeLocale = {
     register(namespace, dictionaries) {
-      const registration: FakeLocaleRegistration = { namespace, dictionaries }
+      // The host's other overload types this argument as a locale id; tests only pass the dictionary form.
+      const recorded = dictionaries as Record<string, Record<string, string>>
+      const registration: FakeLocaleRegistration = { namespace, dictionaries: recorded }
       localeRegistrations.push(registration)
       return track(() => {
         const index = localeRegistrations.indexOf(registration)
