@@ -2,6 +2,14 @@
 
 Every change to `contract/index.d.ts` needs a new version here, a matching `version` in `package.json` and a refreshed `contract/lock.json` (`node scripts/contract-lock.ts --write`).
 
+## 0.3.4
+
+This is an additive, backwards compatible change: `WebuiLayoutService` gains `contractVersion`, the framework's contract version, and the contract lock checks that it matches the package.
+
+- `WEBUI_CONTRACT_VERSION` is that version (the same string as `package.json`). `ctx.webuiLayout.contractVersion` exposes it so a plugin can compare it with the version it compiled against before registering.
+- On 0.x the same minor is compatible; from 1.0 the same major is compatible. The hello-block example warns once and skips registering blocks and presets when the contract is incompatible.
+- The contract lock reports `contract-version-mismatch` when `WEBUI_CONTRACT_VERSION` differs from `package.json` or from `contract/lock.json`.
+
 ## 0.3.3
 
 This is an additive, backwards compatible change: `BlockLayoutActions.open` gains an optional `placement` parameter, and without it opening a tab behaves as before.
