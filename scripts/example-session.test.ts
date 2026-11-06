@@ -5,7 +5,19 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { createElement, useSyncExternalStore } from 'react'
 import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import en from '../locale/en.json'
+import zh from '../locale/zh.json'
 import { apply } from '../examples/hello-block/src/client.tsx'
+
+const copy = (dict: typeof en | typeof zh, key: string): string => {
+  const value = (dict as Record<string, string>)[key]
+  if (value === undefined || value.length === 0) throw new Error(`missing locale text ${key}`)
+  return value
+}
+
+type SessionVerdict =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly reason: 'host-refused' | 'no-session' | 'unmounted' | 'blank-text' }
 
 /** The host's Modal cannot load under vitest, so a stand-in records its props and renders a dialog while open. */
 const modalProps = vi.hoisted(() => [] as Record<string, unknown>[])
@@ -120,16 +132,16 @@ const fakeSession = () => {
       listeners.delete(listener)
     }
   }
-  const send = vi.fn<(text: string) => Promise<boolean>>()
-  const stop = vi.fn<() => Promise<boolean>>()
-  const session: WebuiSession = {
+  const send = vi.fn<(text: string) => Promise<SessionVerdict>>(async () => ({ ok: true }))
+  const stop = vi.fn<() => Promise<SessionVerdict>>(async () => ({ ok: true }))
+  const session = {
     sessionId: 's1',
-    useState(select) {
+    useState(select: (state: WebuiSessionState) => unknown) {
       return select(useSyncExternalStore(subscribe, () => state))
     },
     send,
     stop,
-  }
+  } as unknown as WebuiSession
   return {
     session,
     send,
@@ -283,7 +295,7 @@ describe('example session block', () => {
 
     {
       const { fake, props, view } = renderSession()
-      fake.send.mockResolvedValue(true)
+      fake.send.mockResolvedValue({ ok: true })
       fireEvent.click(screen.getByRole('button', { name: 'Send hello' }))
       expect(fake.send).toHaveBeenCalledTimes(1)
       expect(fake.send).toHaveBeenCalledWith(message)
@@ -295,19 +307,21 @@ describe('example session block', () => {
 
     {
       const { fake, props, view } = renderSession()
-      fake.send.mockResolvedValue(false)
+      const hostRefused = copy(en, 'session.result.host-refused')
+      fake.send.mockResolvedValue({ ok: false, reason: 'host-refused' })
       fireEvent.click(screen.getByRole('button', { name: 'Send hello' }))
       expect(fake.send).toHaveBeenCalledTimes(1)
       expect(fake.send).toHaveBeenCalledWith(message)
       expectNoOtherAction(fake, props, 'send')
-      expect(await screen.findByText('Send refused')).toBeTruthy()
+      expect(await screen.findByText(hostRefused)).toBeTruthy()
       expect(screen.queryByText('Sent')).toBeNull()
+      expect(screen.queryByText('Send refused')).toBeNull()
       view.unmount()
     }
 
     {
       const { fake, props, view } = renderSession()
-      fake.stop.mockResolvedValue(true)
+      fake.stop.mockResolvedValue({ ok: true })
       fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
       expect(fake.stop).toHaveBeenCalledTimes(1)
       expect(fake.stop).toHaveBeenCalledWith()
@@ -319,12 +333,73 @@ describe('example session block', () => {
 
     {
       const { fake, props, view } = renderSession()
-      fake.stop.mockResolvedValue(false)
+      const noSession = copy(en, 'session.result.no-session')
+      fake.stop.mockResolvedValue({ ok: false, reason: 'no-session' })
       fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
       expect(fake.stop).toHaveBeenCalledTimes(1)
       expect(fake.stop).toHaveBeenCalledWith()
       expectNoOtherAction(fake, props, 'stop')
-      expect(await screen.findByText('Stop refused')).toBeTruthy()
+      expect(await screen.findByText(noSession)).toBeTruthy()
+      expect(screen.queryByText('Stopped')).toBeNull()
+      expect(screen.queryByText('Stop refused')).toBeNull()
+      view.unmount()
+    }
+  })
+
+  it('A4 send hello shows Sent or the host-refused text, and stop shows Stopped or the no-session text', async () => {
+    const reasons = ['host-refused', 'no-session', 'unmounted', 'blank-text'] as const
+    expect(Object.keys(zh).sort()).toEqual(Object.keys(en).sort())
+    expect(copy(en, 'session.result.sent')).toBe('Sent')
+    expect(copy(en, 'session.result.stopped')).toBe('Stopped')
+    expect(copy(zh, 'session.result.sent').length).toBeGreaterThan(0)
+    expect(copy(zh, 'session.result.stopped').length).toBeGreaterThan(0)
+    for (const reason of reasons) {
+      expect(copy(en, `session.result.${reason}`), reason).toContain(reason)
+      expect(copy(zh, `session.result.${reason}`), reason).toContain(reason)
+    }
+
+    const HelloSession = await registeredBlock('hello.session')
+    const hostRefused = copy(en, 'session.result.host-refused')
+    const noSession = copy(en, 'session.result.no-session')
+
+    {
+      const { session, send } = fakeSession()
+      send.mockResolvedValue({ ok: true })
+      const view = render(createElement(HelloSession, sessionProps(session)))
+      fireEvent.click(screen.getByRole('button', { name: 'Send hello' }))
+      expect(await screen.findByText('Sent')).toBeTruthy()
+      expect(screen.getByRole('status').textContent).toBe('Sent')
+      view.unmount()
+    }
+
+    {
+      const { session, send } = fakeSession()
+      send.mockResolvedValue({ ok: false, reason: 'host-refused' })
+      const view = render(createElement(HelloSession, sessionProps(session)))
+      fireEvent.click(screen.getByRole('button', { name: 'Send hello' }))
+      expect(await screen.findByText(hostRefused)).toBeTruthy()
+      expect(screen.getByRole('status').textContent).toBe(hostRefused)
+      expect(screen.queryByText('Sent')).toBeNull()
+      view.unmount()
+    }
+
+    {
+      const { session, stop } = fakeSession()
+      stop.mockResolvedValue({ ok: true })
+      const view = render(createElement(HelloSession, sessionProps(session)))
+      fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+      expect(await screen.findByText('Stopped')).toBeTruthy()
+      expect(screen.getByRole('status').textContent).toBe('Stopped')
+      view.unmount()
+    }
+
+    {
+      const { session, stop } = fakeSession()
+      stop.mockResolvedValue({ ok: false, reason: 'no-session' })
+      const view = render(createElement(HelloSession, sessionProps(session)))
+      fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+      expect(await screen.findByText(noSession)).toBeTruthy()
+      expect(screen.getByRole('status').textContent).toBe(noSession)
       expect(screen.queryByText('Stopped')).toBeNull()
       view.unmount()
     }

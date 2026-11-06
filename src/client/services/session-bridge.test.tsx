@@ -112,14 +112,16 @@ function withHostExtras(props: SessionBridgeProps): SessionBridgeProps {
   } as SessionBridgeProps
 }
 
+type ActionResult = { readonly ok: true } | { readonly ok: false; readonly reason: string }
+
 function actionsOf(): {
-  send: ReturnType<typeof vi.fn<(text: string, signal: AbortSignal) => Promise<boolean>>>
-  stop: ReturnType<typeof vi.fn<(signal: AbortSignal) => Promise<boolean>>>
+  send: ReturnType<typeof vi.fn<(text: string, signal: AbortSignal) => Promise<ActionResult>>>
+  stop: ReturnType<typeof vi.fn<(signal: AbortSignal) => Promise<ActionResult>>>
   webuiSessionActions: WebuiSessionActions
 } {
-  const send = vi.fn((_text: string, _signal: AbortSignal): Promise<boolean> => Promise.resolve(true))
-  const stop = vi.fn((_signal: AbortSignal): Promise<boolean> => Promise.resolve(true))
-  return { send, stop, webuiSessionActions: { send, stop } }
+  const send = vi.fn((_text: string, _signal: AbortSignal): Promise<ActionResult> => Promise.resolve({ ok: true }))
+  const stop = vi.fn((_signal: AbortSignal): Promise<ActionResult> => Promise.resolve({ ok: true }))
+  return { send, stop, webuiSessionActions: { send, stop } as unknown as WebuiSessionActions }
 }
 
 function expectOnlyBlockProps(received: object, passed: SessionBridgeProps): void {
@@ -233,7 +235,7 @@ describe('session bridge', () => {
     const { send, stop, webuiSessionActions } = actionsOf()
     const passed = passedProps(unusedHook, webuiSessionActions)
     let held: WebuiSession | undefined
-    let duringRender: Promise<boolean> | undefined
+    let duringRender: Promise<unknown> | undefined
     const Probe = (props: SessionBlockProps) => {
       held = props.session
       if (duringRender === undefined) duringRender = props.session.send('early')
@@ -245,11 +247,11 @@ describe('session bridge', () => {
     const early = duringRender
     if (early === undefined || held === undefined) throw new Error('the block did not render')
     await early
-    expect(await early).toBe(false)
+    expect(await early).toEqual({ ok: false, reason: 'unmounted' })
     expect(send).not.toHaveBeenCalled()
     expect(stop).not.toHaveBeenCalled()
 
-    await expect(held.send('hi')).resolves.toBe(true)
+    await expect(held.send('hi')).resolves.toEqual({ ok: true })
     const signal = send.mock.calls[0]?.[1]
     expect(send).toHaveBeenCalledTimes(1)
     expect(send.mock.calls[0]?.[0]).toBe('hi')
@@ -262,8 +264,8 @@ describe('session bridge', () => {
 
     send.mockClear()
     stop.mockClear()
-    await expect(held.send('later')).resolves.toBe(false)
-    await expect(held.stop()).resolves.toBe(false)
+    await expect(held.send('later')).resolves.toEqual({ ok: false, reason: 'unmounted' })
+    await expect(held.stop()).resolves.toEqual({ ok: false, reason: 'unmounted' })
     expect(send).not.toHaveBeenCalled()
     expect(stop).not.toHaveBeenCalled()
   })
@@ -281,8 +283,8 @@ describe('session bridge', () => {
     render(createElement(StrictMode, null, createElement(Wrapped, passed)))
     if (held === undefined) throw new Error('the block did not render')
 
-    await expect(held.send('hi')).resolves.toBe(true)
-    await expect(held.stop()).resolves.toBe(true)
+    await expect(held.send('hi')).resolves.toEqual({ ok: true })
+    await expect(held.stop()).resolves.toEqual({ ok: true })
 
     const sendSignal = send.mock.calls[0]?.[1]
     const stopSignal = stop.mock.calls[0]?.[0]
@@ -295,5 +297,44 @@ describe('session bridge', () => {
     }
     expect(sendSignal.aborted).toBe(false)
     expect(stopSignal.aborted).toBe(false)
+  })
+
+  it('A3 send and stop resolve unmounted before the mount effect and after unmount, and pass host-refused through', async () => {
+    const { send, stop, webuiSessionActions } = actionsOf()
+    const passed = passedProps(unusedHook, webuiSessionActions)
+    let held: WebuiSession | undefined
+    let earlySend: Promise<unknown> | undefined
+    let earlyStop: Promise<unknown> | undefined
+    const Probe = (props: SessionBlockProps) => {
+      held = props.session
+      if (earlySend === undefined) earlySend = props.session.send('early')
+      if (earlyStop === undefined) earlyStop = props.session.stop()
+      return null
+    }
+    const Wrapped = bridgeSessionBlock(Probe)
+
+    const view = render(createElement(Wrapped, passed))
+    if (earlySend === undefined || earlyStop === undefined || held === undefined) {
+      throw new Error('the block did not render')
+    }
+    await expect(earlySend).resolves.toEqual({ ok: false, reason: 'unmounted' })
+    await expect(earlyStop).resolves.toEqual({ ok: false, reason: 'unmounted' })
+    expect(send).not.toHaveBeenCalled()
+    expect(stop).not.toHaveBeenCalled()
+
+    const sendRefused = { ok: false as const, reason: 'host-refused' as const }
+    const stopRefused = { ok: false as const, reason: 'host-refused' as const }
+    send.mockResolvedValueOnce(sendRefused)
+    await expect(held.send('hi')).resolves.toBe(sendRefused)
+    stop.mockResolvedValueOnce(stopRefused)
+    await expect(held.stop()).resolves.toBe(stopRefused)
+
+    view.unmount()
+    send.mockClear()
+    stop.mockClear()
+    await expect(held.send('later')).resolves.toEqual({ ok: false, reason: 'unmounted' })
+    await expect(held.stop()).resolves.toEqual({ ok: false, reason: 'unmounted' })
+    expect(send).not.toHaveBeenCalled()
+    expect(stop).not.toHaveBeenCalled()
   })
 })

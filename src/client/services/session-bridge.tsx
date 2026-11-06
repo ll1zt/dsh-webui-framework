@@ -4,7 +4,12 @@
  * when that mount ends: the main session changing and the block unregistering are both unmounts of this wrapper.
  */
 import { createElement, useEffect, useMemo, useRef, type ComponentType, type FunctionComponent } from 'react'
-import type { BlockInstanceProps, SessionBlockProps, WebuiSession } from '@lllzt/dsh-webui-framework/contract'
+import type {
+  BlockInstanceProps,
+  SessionActionResult,
+  SessionBlockProps,
+  WebuiSession,
+} from '@lllzt/dsh-webui-framework/contract'
 import type { WebuiSessionActions } from './session-adapter.ts'
 
 /** The state hook the host binds from the injected `webuiSession` source. */
@@ -55,12 +60,12 @@ export function bridgeSessionBlock(component: ComponentType<SessionBlockProps>):
         useState: useWebuiSession,
         send: (text) => {
           const signal = controller.current?.signal
-          if (signal === undefined) return Promise.resolve(false)
+          if (signal === undefined) return Promise.resolve<SessionActionResult>({ ok: false, reason: 'unmounted' })
           return webuiSessionActions.send(text, signal)
         },
         stop: () => {
           const signal = controller.current?.signal
-          if (signal === undefined) return Promise.resolve(false)
+          if (signal === undefined) return Promise.resolve<SessionActionResult>({ ok: false, reason: 'unmounted' })
           return webuiSessionActions.stop(signal)
         },
       }),

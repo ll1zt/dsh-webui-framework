@@ -235,6 +235,21 @@ export interface BlockTabHandle {
 /** Returns `false` to veto closing the tab it guards. */
 export type CloseGuard = () => boolean
 
+/**
+ * Why `WebuiSession.send` or `stop` did not happen:
+ * - `blank-text`: `send` was given text that is empty after trimming. The host is not called.
+ * - `no-session`: the session this block was bound to is no longer the host's session.
+ * - `unmounted`: the block has no mount yet, has unmounted, or this call's signal aborted before the host settled.
+ * - `host-refused`: the host returned `{ ok: false }` or threw.
+ */
+export type SessionActionRejection = 'host-refused' | 'no-session' | 'unmounted' | 'blank-text'
+
+/**
+ * What `send` and `stop` report. `ok: true` means the host accepted the request. The promise never rejects.
+ */
+export type SessionActionResult =
+  { readonly ok: true } | { readonly ok: false; readonly reason: SessionActionRejection }
+
 /** The part of the host's session state a block may read. */
 export interface WebuiSessionState {
   sessionId: string
@@ -254,15 +269,18 @@ export interface WebuiSession {
    */
   useState<T>(select: (state: WebuiSessionState) => T, equal?: (a: T, b: T) => boolean): T
   /**
-   * Appends one message in `'queue'` mode. Resolves to `true` when the host accepted it, and to `false` when the host
-   * refused, threw, the session is gone or the block has unmounted. Never rejects.
+   * Appends one message in `'queue'` mode. Resolves to `{ ok: true }` when the host accepted it, and otherwise to
+   * `{ ok: false, reason }`: `blank-text` when `text` is empty after trimming (the host is not called), `no-session`
+   * when the session is gone, `unmounted` when the block has unmounted or has no mount yet, and `host-refused` when
+   * the host returned `{ ok: false }` or threw. Never rejects.
    */
-  send(text: string): Promise<boolean>
+  send(text: string): Promise<SessionActionResult>
   /**
-   * Stops the running turn, under the same rules as `send`: `true` when the host accepted it, `false` when the host
-   * refused, threw, the session is gone or the block has unmounted. Never rejects.
+   * Stops the running turn. Resolves to `{ ok: true }` when the host accepted it, and otherwise to
+   * `{ ok: false, reason }`: `no-session` when the session is gone, `unmounted` when the block has unmounted or has no
+   * mount yet, and `host-refused` when the host returned `{ ok: false }` or threw. Never rejects.
    */
-  stop(): Promise<boolean>
+  stop(): Promise<SessionActionResult>
 }
 
 /** Props a `session`-scope block receives. */

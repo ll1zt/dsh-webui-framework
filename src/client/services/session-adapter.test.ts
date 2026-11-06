@@ -230,7 +230,7 @@ describe('session adapter', () => {
     const actions = actionsFor(fake, 's1', () => fake.binding)
     const controller = new AbortController()
     fake.prompt.mockResolvedValueOnce({ ok: true })
-    await expect(actions.send('hello', controller.signal)).resolves.toBe(true)
+    await expect(actions.send('hello', controller.signal)).resolves.toEqual({ ok: true })
 
     const call = fake.prompt.mock.calls[0]
     expect(call).toHaveLength(3)
@@ -239,7 +239,10 @@ describe('session adapter', () => {
     expect(call?.[2]).toBe(controller.signal)
 
     fake.prompt.mockResolvedValueOnce({ ok: false })
-    await expect(actions.send('hello', new AbortController().signal)).resolves.toBe(false)
+    await expect(actions.send('hello', new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      reason: 'host-refused',
+    })
   })
 
   it('A4 send returns false and warns once without the sent text when prompt throws or rejects', async () => {
@@ -251,7 +254,7 @@ describe('session adapter', () => {
     })
     const syncResult = syncActions.send(text, new AbortController().signal)
     expect(syncResult).toBeInstanceOf(Promise)
-    await expect(syncResult).resolves.toBe(false)
+    await expect(syncResult).resolves.toEqual({ ok: false, reason: 'host-refused' })
     expect(warnSpy()).toHaveBeenCalledTimes(1)
     expect(warnText()).toContain(LOG_PREFIX)
     expect(warnText()).not.toContain(text)
@@ -260,7 +263,10 @@ describe('session adapter', () => {
     const asyncFake = fakeBinding()
     const asyncActions = actionsFor(asyncFake, 's1', () => asyncFake.binding)
     asyncFake.prompt.mockImplementation(() => Promise.reject(new Error('async-boom')))
-    await expect(asyncActions.send(text, new AbortController().signal)).resolves.toBe(false)
+    await expect(asyncActions.send(text, new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      reason: 'host-refused',
+    })
     expect(warnSpy()).toHaveBeenCalledTimes(1)
     expect(warnText()).toContain(LOG_PREFIX)
     expect(warnText()).not.toContain(text)
@@ -268,23 +274,23 @@ describe('session adapter', () => {
 
   it('A4 send returns false without calling prompt for blank text or a stale binding', async () => {
     const blank = fakeBinding()
-    await expect(actionsFor(blank, 's1', () => blank.binding).send('   ', new AbortController().signal)).resolves.toBe(
-      false,
-    )
+    await expect(
+      actionsFor(blank, 's1', () => blank.binding).send('   ', new AbortController().signal),
+    ).resolves.toEqual({ ok: false, reason: 'blank-text' })
     expect(blank.prompt).not.toHaveBeenCalled()
 
     const replaced = fakeBinding()
     const other = fakeBinding()
     await expect(
       actionsFor(replaced, 's1', () => other.binding).send('hello', new AbortController().signal),
-    ).resolves.toBe(false)
+    ).resolves.toEqual({ ok: false, reason: 'no-session' })
     expect(replaced.prompt).not.toHaveBeenCalled()
     expect(other.prompt).not.toHaveBeenCalled()
 
     const missing = fakeBinding()
-    await expect(actionsFor(missing, 's1', () => undefined).send('hello', new AbortController().signal)).resolves.toBe(
-      false,
-    )
+    await expect(
+      actionsFor(missing, 's1', () => undefined).send('hello', new AbortController().signal),
+    ).resolves.toEqual({ ok: false, reason: 'no-session' })
     expect(missing.prompt).not.toHaveBeenCalled()
   })
 
@@ -292,11 +298,14 @@ describe('session adapter', () => {
     const fake = fakeBinding()
     const actions = actionsFor(fake, 's1', () => fake.binding)
     fake.cancel.mockResolvedValueOnce({ ok: true })
-    await expect(actions.stop(new AbortController().signal)).resolves.toBe(true)
+    await expect(actions.stop(new AbortController().signal)).resolves.toEqual({ ok: true })
     expect(fake.cancel.mock.calls[0]).toEqual([])
 
     fake.cancel.mockResolvedValueOnce({ ok: false })
-    await expect(actions.stop(new AbortController().signal)).resolves.toBe(false)
+    await expect(actions.stop(new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      reason: 'host-refused',
+    })
   })
 
   it('A5 stop returns false without throwing when cancel throws or rejects', async () => {
@@ -304,18 +313,18 @@ describe('session adapter', () => {
     syncFake.cancel.mockImplementation(() => {
       throw new Error('sync-boom')
     })
-    await expect(actionsFor(syncFake, 's1', () => syncFake.binding).stop(new AbortController().signal)).resolves.toBe(
-      false,
-    )
+    await expect(
+      actionsFor(syncFake, 's1', () => syncFake.binding).stop(new AbortController().signal),
+    ).resolves.toEqual({ ok: false, reason: 'host-refused' })
     expect(warnSpy()).toHaveBeenCalledTimes(1)
     expect(warnText()).toContain(LOG_PREFIX)
 
     warnSpy().mockClear()
     const asyncFake = fakeBinding()
     asyncFake.cancel.mockImplementation(() => Promise.reject(new Error('async-boom')))
-    await expect(actionsFor(asyncFake, 's1', () => asyncFake.binding).stop(new AbortController().signal)).resolves.toBe(
-      false,
-    )
+    await expect(
+      actionsFor(asyncFake, 's1', () => asyncFake.binding).stop(new AbortController().signal),
+    ).resolves.toEqual({ ok: false, reason: 'host-refused' })
     expect(warnSpy()).toHaveBeenCalledTimes(1)
     expect(warnText()).toContain(LOG_PREFIX)
   })
@@ -323,14 +332,18 @@ describe('session adapter', () => {
   it('A5 stop returns false without calling cancel when the binding is stale', async () => {
     const replaced = fakeBinding()
     const other = fakeBinding()
-    await expect(actionsFor(replaced, 's1', () => other.binding).stop(new AbortController().signal)).resolves.toBe(
-      false,
-    )
+    await expect(actionsFor(replaced, 's1', () => other.binding).stop(new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      reason: 'no-session',
+    })
     expect(replaced.cancel).not.toHaveBeenCalled()
     expect(other.cancel).not.toHaveBeenCalled()
 
     const missing = fakeBinding()
-    await expect(actionsFor(missing, 's1', () => undefined).stop(new AbortController().signal)).resolves.toBe(false)
+    await expect(actionsFor(missing, 's1', () => undefined).stop(new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      reason: 'no-session',
+    })
     expect(missing.cancel).not.toHaveBeenCalled()
   })
 
@@ -339,8 +352,8 @@ describe('session adapter', () => {
     const actions = actionsFor(fake, 's1', () => fake.binding)
     const controller = new AbortController()
     controller.abort()
-    await expect(actions.send('hello', controller.signal)).resolves.toBe(false)
-    await expect(actions.stop(controller.signal)).resolves.toBe(false)
+    await expect(actions.send('hello', controller.signal)).resolves.toEqual({ ok: false, reason: 'unmounted' })
+    await expect(actions.stop(controller.signal)).resolves.toEqual({ ok: false, reason: 'unmounted' })
     expect(fake.prompt).not.toHaveBeenCalled()
     expect(fake.cancel).not.toHaveBeenCalled()
   })
@@ -352,13 +365,13 @@ describe('session adapter', () => {
     const sendController = new AbortController()
     const sending = actions.send('hello', sendController.signal)
     sendController.abort()
-    await expect(sending).resolves.toBe(false)
+    await expect(sending).resolves.toEqual({ ok: false, reason: 'unmounted' })
 
     fake.cancel.mockImplementation(() => new Promise<HostAnswer>(() => {}))
     const stopController = new AbortController()
     const stopping = actions.stop(stopController.signal)
     stopController.abort()
-    await expect(stopping).resolves.toBe(false)
+    await expect(stopping).resolves.toEqual({ ok: false, reason: 'unmounted' })
   })
 
   it('A7 a second send does not abort or replace the first', async () => {
@@ -382,8 +395,8 @@ describe('session adapter', () => {
 
     first.resolve({ ok: true })
     second.resolve({ ok: false })
-    await expect(firstSend).resolves.toBe(true)
-    await expect(secondSend).resolves.toBe(false)
+    await expect(firstSend).resolves.toEqual({ ok: true })
+    await expect(secondSend).resolves.toEqual({ ok: false, reason: 'host-refused' })
   })
 
   it('A7 a second stop does not abort or replace the first', async () => {
@@ -405,8 +418,8 @@ describe('session adapter', () => {
 
     first.resolve({ ok: true })
     second.resolve({ ok: false })
-    await expect(firstStop).resolves.toBe(true)
-    await expect(secondStop).resolves.toBe(false)
+    await expect(firstStop).resolves.toEqual({ ok: true })
+    await expect(secondStop).resolves.toEqual({ ok: false, reason: 'host-refused' })
   })
 
   it('A8 injects the cached source and actions or throws when the binding is missing', () => {
@@ -435,5 +448,103 @@ describe('session adapter', () => {
     }
     expect(thrown).toBeInstanceOf(Error)
     expect((thrown as Error).message).toContain('s1')
+  })
+
+  it('A2 send and stop resolve blank-text, no-session, unmounted and host-refused, and never reject', async () => {
+    const text = 'secret-text-123'
+    const refused = { ok: false, reason: 'host-refused' } as const
+
+    const blank = fakeBinding()
+    const blankSend = actionsFor(blank, 's1', () => blank.binding).send('   ', new AbortController().signal)
+    expect(blankSend).toBeInstanceOf(Promise)
+    await expect(blankSend).resolves.toEqual({ ok: false, reason: 'blank-text' })
+    expect(blank.prompt).not.toHaveBeenCalled()
+
+    const replaced = fakeBinding()
+    const other = fakeBinding()
+    const replacedActions = actionsFor(replaced, 's1', () => other.binding)
+    await expect(replacedActions.send('hello', new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      reason: 'no-session',
+    })
+    await expect(replacedActions.stop(new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      reason: 'no-session',
+    })
+    expect(replaced.prompt).not.toHaveBeenCalled()
+    expect(replaced.cancel).not.toHaveBeenCalled()
+    expect(other.prompt).not.toHaveBeenCalled()
+    expect(other.cancel).not.toHaveBeenCalled()
+
+    const missing = fakeBinding()
+    const missingActions = actionsFor(missing, 's1', () => undefined)
+    await expect(missingActions.send('hello', new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      reason: 'no-session',
+    })
+    await expect(missingActions.stop(new AbortController().signal)).resolves.toEqual({
+      ok: false,
+      reason: 'no-session',
+    })
+    expect(missing.prompt).not.toHaveBeenCalled()
+    expect(missing.cancel).not.toHaveBeenCalled()
+
+    const aborted = fakeBinding()
+    const abortedActions = actionsFor(aborted, 's1', () => aborted.binding)
+    const controller = new AbortController()
+    controller.abort()
+    await expect(abortedActions.send('hello', controller.signal)).resolves.toEqual({ ok: false, reason: 'unmounted' })
+    await expect(abortedActions.stop(controller.signal)).resolves.toEqual({ ok: false, reason: 'unmounted' })
+    expect(aborted.prompt).not.toHaveBeenCalled()
+    expect(aborted.cancel).not.toHaveBeenCalled()
+
+    const host = fakeBinding()
+    const hostActions = actionsFor(host, 's1', () => host.binding)
+    host.prompt.mockResolvedValueOnce({ ok: false })
+    await expect(hostActions.send('hello', new AbortController().signal)).resolves.toEqual(refused)
+    host.cancel.mockResolvedValueOnce({ ok: false })
+    await expect(hostActions.stop(new AbortController().signal)).resolves.toEqual(refused)
+
+    warnSpy().mockClear()
+    const syncSend = fakeBinding()
+    syncSend.prompt.mockImplementation(() => {
+      throw new Error('sync-boom')
+    })
+    await expect(
+      actionsFor(syncSend, 's1', () => syncSend.binding).send(text, new AbortController().signal),
+    ).resolves.toEqual(refused)
+    expect(warnSpy()).toHaveBeenCalledTimes(1)
+    expect(warnText()).toContain(LOG_PREFIX)
+    expect(warnText()).not.toContain(text)
+
+    warnSpy().mockClear()
+    const asyncSend = fakeBinding()
+    asyncSend.prompt.mockImplementation(() => Promise.reject(new Error('async-boom')))
+    await expect(
+      actionsFor(asyncSend, 's1', () => asyncSend.binding).send(text, new AbortController().signal),
+    ).resolves.toEqual(refused)
+    expect(warnSpy()).toHaveBeenCalledTimes(1)
+    expect(warnText()).toContain(LOG_PREFIX)
+    expect(warnText()).not.toContain(text)
+
+    warnSpy().mockClear()
+    const syncStop = fakeBinding()
+    syncStop.cancel.mockImplementation(() => {
+      throw new Error('sync-boom')
+    })
+    await expect(
+      actionsFor(syncStop, 's1', () => syncStop.binding).stop(new AbortController().signal),
+    ).resolves.toEqual(refused)
+    expect(warnSpy()).toHaveBeenCalledTimes(1)
+    expect(warnText()).toContain(LOG_PREFIX)
+
+    warnSpy().mockClear()
+    const asyncStop = fakeBinding()
+    asyncStop.cancel.mockImplementation(() => Promise.reject(new Error('async-boom')))
+    await expect(
+      actionsFor(asyncStop, 's1', () => asyncStop.binding).stop(new AbortController().signal),
+    ).resolves.toEqual(refused)
+    expect(warnSpy()).toHaveBeenCalledTimes(1)
+    expect(warnText()).toContain(LOG_PREFIX)
   })
 })

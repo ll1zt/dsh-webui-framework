@@ -1,7 +1,26 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import type { BlockInstanceProps, LayoutPreset, SessionBlockProps } from '@lllzt/dsh-webui-framework/contract'
+import type {
+  BlockInstanceProps,
+  LayoutPreset,
+  SessionActionResult,
+  SessionBlockProps,
+} from '@lllzt/dsh-webui-framework/contract'
+
+/** English `session.result.*` copy, the same strings as locale/en.json. This example has no translate handle. */
+const SESSION_RESULT_EN = {
+  sent: 'Sent',
+  stopped: 'Stopped',
+  'blank-text': 'The message was empty (blank-text)',
+  'host-refused': 'The host refused (host-refused)',
+  'no-session': 'The session is gone (no-session)',
+  unmounted: 'The block is unmounted (unmounted)',
+} as const
+
+function sessionVerdict(result: SessionActionResult, whenOk: 'sent' | 'stopped'): string {
+  return result.ok ? SESSION_RESULT_EN[whenOk] : SESSION_RESULT_EN[result.reason]
+}
 
 export const name = 'hello-block'
 
@@ -80,7 +99,7 @@ let mounts = 0
 function HelloSession({ session }: SessionBlockProps) {
   const [mount] = useState(() => ++mounts)
   const running = session.useState((state) => state.running)
-  const [verdict, setVerdict] = useState<'Sent' | 'Send refused' | 'Stopped' | 'Stop refused' | null>(null)
+  const [verdict, setVerdict] = useState<string | null>(null)
   return (
     <div style={{ padding: 16, color: 'var(--text)' }}>
       <p>Hello from a session block, mount #{mount}</p>
@@ -89,8 +108,8 @@ function HelloSession({ session }: SessionBlockProps) {
       <button
         type="button"
         onClick={() => {
-          void session.send('Hello from the example session block').then((accepted) => {
-            setVerdict(accepted ? 'Sent' : 'Send refused')
+          void session.send('Hello from the example session block').then((result) => {
+            setVerdict(sessionVerdict(result, 'sent'))
           })
         }}
       >
@@ -99,8 +118,8 @@ function HelloSession({ session }: SessionBlockProps) {
       <button
         type="button"
         onClick={() => {
-          void session.stop().then((accepted) => {
-            setVerdict(accepted ? 'Stopped' : 'Stop refused')
+          void session.stop().then((result) => {
+            setVerdict(sessionVerdict(result, 'stopped'))
           })
         }}
       >
@@ -141,7 +160,7 @@ const PRESET: LayoutPreset = {
 }
 
 /** Contract version this example was compiled against. */
-export const COMPILED_AGAINST = '0.3.4'
+export const COMPILED_AGAINST = '0.4.0'
 
 export function apply(ctx: Context) {
   // Canonical rule: isCompatibleContract in src/lib/contract-version.ts (0.x same minor, from 1.0 same major).
