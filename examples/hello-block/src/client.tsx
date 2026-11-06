@@ -1,7 +1,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { Modal } from '@deepseek-ai/dsh-client-ui-primitives'
 import { useEffect, useState, useSyncExternalStore } from 'react'
-import type { BlockInstanceProps, LayoutPreset } from '@lllzt/dsh-webui-framework/contract'
+import type { BlockInstanceProps, LayoutPreset, SessionBlockProps } from '@lllzt/dsh-webui-framework/contract'
 
 export const name = 'hello-block'
 
@@ -77,9 +77,38 @@ function HelloNote({ contentId, tab }: BlockInstanceProps) {
 
 let mounts = 0
 
-function HelloSession() {
+function HelloSession({ session }: SessionBlockProps) {
   const [mount] = useState(() => ++mounts)
-  return <div style={{ padding: 16, color: 'var(--text)' }}>Hello from a session block, mount #{mount}</div>
+  const running = session.useState((state) => state.running)
+  const [verdict, setVerdict] = useState<'Sent' | 'Send refused' | 'Stopped' | 'Stop refused' | null>(null)
+  return (
+    <div style={{ padding: 16, color: 'var(--text)' }}>
+      <p>Hello from a session block, mount #{mount}</p>
+      <p>Session {session.sessionId}</p>
+      <p>{running ? 'running' : 'idle'}</p>
+      <button
+        type="button"
+        onClick={() => {
+          void session.send('Hello from the example session block').then((accepted) => {
+            setVerdict(accepted ? 'Sent' : 'Send refused')
+          })
+        }}
+      >
+        Send hello
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void session.stop().then((accepted) => {
+            setVerdict(accepted ? 'Stopped' : 'Stop refused')
+          })
+        }}
+      >
+        Stop
+      </button>
+      <p role="status">{verdict ?? ''}</p>
+    </div>
+  )
 }
 
 function HelloBoom(): never {

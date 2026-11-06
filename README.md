@@ -194,6 +194,39 @@ function Opener() {
 
 框架与宿主的 `ui-layout` 都占用 root，两者不能同时启用。
 
+### session 块
+
+`scope: 'session'` 的块，组件类型是 `ComponentType<SessionBlockProps>`（`SessionBlockProps` 是 `BlockInstanceProps` 加上 `session`）。会话经 `props.session` 读，不再读宿主的标准 props。从 0.3.0 起，session 块只收到 `SessionBlockProps`。
+
+`session.sessionId` 是当前主会话的 id。`session.useState(select, equal?)` 是 hook：在渲染期间调用，每次渲染的调用顺序要相同。选出的值不变时块不重渲染，默认按 `Object.is` 比较；传入 `equal` 时用它比较。可读的状态是 `WebuiSessionState`：`sessionId`、`running`、`blank`、`removed`、`openState`（`'cold' | 'loading' | 'open' | 'error'`）和 `lastAgentError`。同一个会话的多次渲染之间，`session` 是同一个对象。
+
+`session.send(text)` 以 `'queue'` 模式追加一条消息；`session.stop()` 停止正在运行的回合。宿主接受时解析为 `true`；宿主拒绝、抛错、会话已经不在，或块已经卸载时解析为 `false`。两者都永不 reject。块卸载时，在途的请求被取消，并以 `false` 落定。
+
+没有主会话时，session 块显示空态（块不挂载）。框架不选主会话，也不提供选主会话的插件：当前主会话由持有 `mainView` 的路由插件决定。主会话切换时，session 块重挂一次。
+
+**0.3.0 迁移。** `registerBlock` 的组件类型随 `scope` 而定，这是不兼容的改动：`'root'` 要 `ComponentType<BlockInstanceProps>`，`'session'` 要 `ComponentType<SessionBlockProps>`。把 `ComponentType<SessionBlockProps>` 注册成根块会编译失败。`meta` 的类型若是 `BlockMeta` 联合，只接受只要 `BlockInstanceProps` 的组件；把会话组件配到这样的 `meta` 上也会编译失败。
+
+```tsx
+import type { SessionBlockProps } from '@lllzt/dsh-webui-framework/contract'
+
+function HelloSession({ session }: SessionBlockProps) {
+  const running = session.useState((state) => state.running)
+  return (
+    <>
+      <p>
+        Session {session.sessionId}, {running ? 'running' : 'idle'}
+      </p>
+      <button type="button" onClick={() => void session.send('Hello')}>
+        Send hello
+      </button>
+      <button type="button" onClick={() => void session.stop()}>
+        Stop
+      </button>
+    </>
+  )
+}
+```
+
 ### 只读的布局视图
 
 `props.view` 是只读的布局视图，没有写方法，改布局要走 `props.layout`：
@@ -204,7 +237,7 @@ function Opener() {
 - `view.isActive(target)`：该标签是否已打开并且是所在窗格的活动标签；
 - `view.canUndo()` / `view.canRedo()`：`layout.undo()` / `layout.redo()` 此刻有没有步骤可走。
 
-完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块（带「Undo」「Redo」按钮，按 `view.canUndo()` / `view.canRedo()` 启用，还有一个「Open dialog」按钮，用宿主的 `Modal` 弹出对话框）、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭，还有一个「Note text」文本框，用来在输入框里试键盘命令）、一个 session 块、一个故意抛错的块和一个预设。示例不进发布包。
+完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块（带「Undo」「Redo」按钮，按 `view.canUndo()` / `view.canRedo()` 启用，还有一个「Open dialog」按钮，用宿主的 `Modal` 弹出对话框）、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭，还有一个「Note text」文本框，用来在输入框里试键盘命令）、一个 session 块（显示会话 id 与运行状态，并有「Send hello」和「Stop」两个按钮）、一个故意抛错的块和一个预设。示例不进发布包。
 
 ## 首版不做
 
