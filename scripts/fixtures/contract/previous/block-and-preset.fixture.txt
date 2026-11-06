@@ -1,0 +1,46 @@
+import type { Context } from '@deepseek-ai/cordis'
+import type { ComponentType } from 'react'
+import type {
+  BlockInstanceProps,
+  BlockMeta,
+  LayoutPreset,
+  WebuiLayout,
+} from '@lllzt/dsh-webui-framework/contract'
+
+const meta: BlockMeta = {
+  id: 'demo.hello',
+  scope: 'root',
+  priority: 10,
+  title: { zh: '你好', en: 'Hello' },
+  closable: true,
+  multiInstance: false,
+  defaultSize: { px: 320, min: 200, max: 600 },
+}
+
+const Hello: ComponentType<BlockInstanceProps> = (props) => {
+  props.layout.resize({ blockId: props.blockId }, { fr: 1 })
+  props.layout.close({ blockId: props.blockId, contentId: props.contentId })
+  return null
+}
+
+const layout: WebuiLayout = {
+  version: 1,
+  root: {
+    kind: 'split',
+    axis: 'row',
+    children: [{ kind: 'pane', tabs: [{ blockId: meta.id, contentId: 'main' }], active: 0 }],
+    sizes: [{ fr: 1 }],
+  },
+  activePane: [0],
+}
+
+const preset: LayoutPreset = { id: 'demo.default', priority: 10, layout }
+
+export function apply(ctx: Context): () => void {
+  const disposeBlock = ctx.webuiLayout.registerBlock(meta, Hello)
+  const disposePreset = ctx.webuiLayout.registerPreset(preset)
+  return () => {
+    disposeBlock()
+    disposePreset()
+  }
+}

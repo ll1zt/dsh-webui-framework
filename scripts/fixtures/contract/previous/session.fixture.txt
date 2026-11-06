@@ -1,0 +1,40 @@
+import type { Context } from '@deepseek-ai/cordis'
+import type { ComponentType } from 'react'
+import type {
+  SessionActionResult,
+  SessionBlockMeta,
+  SessionBlockProps,
+  WebuiSession,
+  WebuiSessionState,
+} from '@lllzt/dsh-webui-framework/contract'
+
+const meta: SessionBlockMeta = {
+  id: 'demo.session',
+  scope: 'session',
+  priority: 10,
+  title: { zh: '会话', en: 'Session' },
+  closable: true,
+  multiInstance: false,
+}
+
+const SessionView: ComponentType<SessionBlockProps> = (props) => {
+  const session: WebuiSession = props.session
+  const running = session.useState((state: WebuiSessionState) => state.running)
+  void running
+  void session.send('hello').then((result: SessionActionResult) => {
+    if (result.ok) return
+    void result.reason
+  })
+  void session.stop().then((result: SessionActionResult) => {
+    if (result.ok) return
+    void result.reason
+  })
+  return null
+}
+
+export function apply(ctx: Context): () => void {
+  const disposeBlock = ctx.webuiLayout.registerBlock(meta, SessionView)
+  return () => {
+    disposeBlock()
+  }
+}
