@@ -151,6 +151,14 @@ const SNIPPETS: Record<string, string> = {
   rootOnSession: registerCall(blockLiteral('root'), 'sessionView'),
   unionOnSession: registerCall('meta', 'sessionView'),
   unionOnRoot: registerCall('meta', 'rootView'),
+  openPlacement: [
+    `import type { BlockInstanceProps, BlockTarget } from '${CONTRACT}'`,
+    `declare const props: BlockInstanceProps`,
+    `declare const target: BlockTarget`,
+    `props.layout.open(target)`,
+    `props.layout.open(target, { beside: { blockId: 'x' }, side: 'left' })`,
+    `props.layout.open(target, { beside: { blockId: 'x' }, side: 'middle' })`,
+  ].join('\n'),
 }
 
 /** Compile every snippet as a virtual file inside the repo, so the package self-reference resolves. */
@@ -242,6 +250,16 @@ describe('type-only contract', () => {
         name,
       ).toBe(true)
     }
+  }, 60_000)
+
+  it('A1 props.layout.open accepts no placement and a beside placement, and rejects side middle', () => {
+    const found = diagnostics.openPlacement ?? []
+    const messages = describeAll(found)
+    expect(messages.length, messages.join('\n')).toBeGreaterThan(0)
+    for (const message of messages) expect(message, message).toMatch(/\bmiddle\b/)
+    const codes = found.map((diagnostic) => diagnostic.code)
+    expect(codes.every((code) => code === TYPE_MISMATCH || code === ARGUMENT_NOT_ASSIGNABLE)).toBe(true)
+    expect(codes).not.toContain(CANNOT_FIND_MODULE)
   }, 60_000)
 })
 

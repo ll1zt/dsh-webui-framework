@@ -24,7 +24,7 @@ import {
   type LayoutHistory,
   type LayoutHistoryStep,
 } from '../../lib/layout-history.ts'
-import { activateBlock, closeBlock, openBlock, resizeBlock, tabPathOf } from '../../lib/layout-ops.ts'
+import { activateBlock, closeBlock, openBeside, openBlock, resizeBlock, tabPathOf } from '../../lib/layout-ops.ts'
 import type { BlockRegistration, BlockRegistry } from './block-registry.ts'
 import { LOG_PREFIX } from './log-prefix.ts'
 
@@ -137,10 +137,16 @@ export class LayoutController {
   #history: LayoutHistory = EMPTY_LAYOUT_HISTORY
 
   readonly actions: DockActions = {
-    open: (target) =>
+    open: (target, placement) =>
       this.#act(
-        (_layout, catalog) => (catalog.blocks.has(target.blockId) ? undefined : 'unknown-block'),
-        (layout, catalog) => openBlock(layout, target, catalog),
+        (layout, catalog) => {
+          if (!catalog.blocks.has(target.blockId)) return 'unknown-block'
+          if (placement === undefined) return undefined
+          if (!catalog.blocks.has(placement.beside.blockId)) return 'unknown-block'
+          return tabPathOf(layout, placement.beside, catalog) === undefined ? 'no-such-tab' : undefined
+        },
+        (layout, catalog) =>
+          placement === undefined ? openBlock(layout, target, catalog) : openBeside(layout, target, placement, catalog),
       ),
     close: (target) =>
       this.#act(

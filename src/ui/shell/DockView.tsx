@@ -66,7 +66,7 @@ function blockLayoutOf(actions: BlockLayoutActions): BlockLayoutActions {
   let layout = blockLayouts.get(actions)
   if (layout === undefined) {
     layout = {
-      open: (target) => actions.open(target),
+      open: (target, placement) => (placement === undefined ? actions.open(target) : actions.open(target, placement)),
       close: (target) => actions.close(target),
       activate: (target) => actions.activate(target),
       resize: (target, size) => actions.resize(target, size),

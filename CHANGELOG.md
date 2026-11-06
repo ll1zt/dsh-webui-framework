@@ -2,6 +2,13 @@
 
 Every change to `contract/index.d.ts` needs a new version here, a matching `version` in `package.json` and a refreshed `contract/lock.json` (`node scripts/contract-lock.ts --write`).
 
+## 0.3.3
+
+This is an additive, backwards compatible change: `BlockLayoutActions.open` gains an optional `placement` parameter, and without it opening a tab behaves as before.
+
+- `OpenPlacement` names an already-open tab (`beside`) and a side (`left`, `right`, `top` or `bottom`). Passing it splits that tab's pane and opens the target there; a tab that is already open moves instead of being copied.
+- A beside block that is not registered is rejected with `unknown-block`, and a beside tab that is not open with `no-such-tab`. The layout is left unchanged.
+
 ## 0.3.1
 
 This is an additive, backwards compatible change that adds `--state-error-fg`, `--state-error-bg`, `--state-warning-fg`, `--state-warning-bg`, `--state-success-fg` and `--state-success-bg` to `WebuiTokenName`. Content packs can use these state colours for error, warning and success hints without picking colours, and the colours follow the host theme.

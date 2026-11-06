@@ -1,4 +1,13 @@
-import type { BlockMeta, BlockRef, BlockTarget, LayoutNode, LayoutSize, WebuiLayout } from '@lllzt/dsh-webui-framework/contract'
+import type {
+  BlockMeta,
+  BlockRef,
+  BlockTarget,
+  LayoutNode,
+  LayoutPane,
+  LayoutSize,
+  OpenPlacement,
+  WebuiLayout,
+} from '@lllzt/dsh-webui-framework/contract'
 import type { LayoutCatalog } from './layout.ts'
 import { appendTab, clampSize, replaceAt, resolveLayout } from './layout.ts'
 
@@ -39,6 +48,94 @@ export function openBlock(layout: WebuiLayout, target: BlockTarget, catalog: Lay
   const ref = refOf(target, meta)
   const open = layout.root !== null && findTab(layout.root, ref) !== undefined
   return open ? activateBlock(layout, ref) : appendTab(layout, ref)
+}
+
+const EQUAL_SHARE: LayoutSize = { fr: 1 }
+
+function samePath(a: readonly number[], b: readonly number[]): boolean {
+  return a.length === b.length && a.every((step, index) => step === b[index])
+}
+
+/** The tree without the tab at `place`: an emptied pane is dropped, and a split left with one child is flattened away. */
+function withoutTab(node: LayoutNode, place: TabPlace): LayoutNode | null {
+  const [head, ...rest] = place.path
+  if (head === undefined) {
+    if (node.kind !== 'pane') return node
+    const tabs = node.tabs.filter((_, index) => index !== place.index)
+    if (tabs.length === 0) return null
+    const active = place.index < node.active ? node.active - 1 : node.active
+    return { kind: 'pane', tabs, active: Math.min(active, tabs.length - 1) }
+  }
+  if (node.kind !== 'split') return node
+  const child = node.children[head]
+  if (child === undefined) return node
+  const updated = withoutTab(child, { path: rest, index: place.index })
+  if (updated === null) {
+    const children = node.children.filter((_, index) => index !== head)
+    const only = children.length === 1 ? children[0] : undefined
+    if (only !== undefined) return only
+    if (children.length === 0) return null
+    return { kind: 'split', axis: node.axis, children, sizes: node.sizes.filter((_, index) => index !== head) }
+  }
+  return { ...node, children: node.children.map((item, index) => (index === head ? updated : item)) }
+}
+
+/** Replaces the pane at `path` with a two-pane split; `before` puts `pane` first. */
+function splitPane(
+  root: LayoutNode,
+  path: readonly number[],
+  pane: LayoutPane,
+  axis: 'row' | 'column',
+  before: boolean,
+): LayoutNode {
+  return replaceAt(root, path, (at) => {
+    if (at.kind !== 'pane') return at
+    return {
+      kind: 'split',
+      axis,
+      children: before ? [pane, at] : [at, pane],
+      sizes: [EQUAL_SHARE, EQUAL_SHARE],
+    }
+  })
+}
+
+/**
+ * Opens `target` in a new pane beside the pane that holds `placement.beside`.
+ * `left` and `top` put the new pane first, `right` and `bottom` second; left/right split on a row and top/bottom on a
+ * column, and both sides take an equal share. A target that is already open moves into that pane. Returns `layout`
+ * itself when the beside block is not registered or its tab is not open.
+ */
+export function openBeside(
+  layout: WebuiLayout,
+  target: BlockTarget,
+  placement: OpenPlacement,
+  catalog: LayoutCatalog,
+): WebuiLayout {
+  const besideMeta = catalog.blocks.get(placement.beside.blockId)
+  if (besideMeta === undefined || layout.root === null) return layout
+  const beside = findTab(layout.root, refOf(placement.beside, besideMeta))
+  if (beside === undefined) return layout
+  const meta = catalog.blocks.get(target.blockId)
+  if (meta === undefined) return layout
+  const ref = refOf(target, meta)
+
+  const before = placement.side === 'left' || placement.side === 'top'
+  const axis = placement.side === 'left' || placement.side === 'right' ? 'row' : 'column'
+  // Read the old place before the split: afterwards the new tab is also in the tree, and a tab that shared the
+  // beside pane has moved one level down. Every other pane keeps its path.
+  const existing = findTab(layout.root, ref)
+  const split = splitPane(layout.root, beside.path, { kind: 'pane', tabs: [ref], active: 0 }, axis, before)
+  const root =
+    existing === undefined
+      ? split
+      : withoutTab(split, {
+          path: samePath(existing.path, beside.path) ? [...beside.path, before ? 1 : 0] : existing.path,
+          index: existing.index,
+        })
+  if (root === null) return layout
+  const placed = findTab(root, ref)
+  if (placed === undefined) return layout
+  return { version: 1, root, activePane: placed.path }
 }
 
 export function closeBlock(layout: WebuiLayout, target: BlockTarget, catalog: LayoutCatalog): WebuiLayout {
