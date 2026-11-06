@@ -5,7 +5,11 @@
  */
 import type { ISessions, SessionBinding, SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
-import type { WebuiSessionState } from '@lllzt/dsh-webui-framework/contract'
+import type {
+  SessionActionRejection,
+  SessionActionResult,
+  WebuiSessionState,
+} from '@lllzt/dsh-webui-framework/contract'
 import { LOG_PREFIX } from './log-prefix.ts'
 
 /** The host's session id, derived here so this module does not import the brand itself. */
@@ -51,26 +55,38 @@ function warnHostFailure(op: 'prompt' | 'cancel', error: unknown): void {
   console.warn(`${LOG_PREFIX} session ${op} failed: ${detail}`)
 }
 
+function accepted(): SessionActionResult {
+  return { ok: true }
+}
+
+function rejected(reason: SessionActionRejection): SessionActionResult {
+  return { ok: false, reason }
+}
+
 /**
- * Settle `pending` as `false` when `signal` aborts first. A rejection is logged once and becomes `false`;
- * the returned promise does not reject. Aborting here does not abort any other in-flight call.
+ * Settle `pending` as `unmounted` when `signal` aborts first. A rejection is logged once and becomes
+ * `host-refused`; the returned promise does not reject. Aborting here does not abort any other in-flight call.
  * @param signal - cancellation for this call only.
  * @param pending - the host promise.
  * @param op - which host call failed, when it fails.
- * @returns whether the host accepted before cancellation.
+ * @returns `{ ok: true }` when the host accepted before cancellation, otherwise the rejection.
  */
-function racedOk(signal: AbortSignal, pending: Promise<HostResult>, op: 'prompt' | 'cancel'): Promise<boolean> {
+function racedOk(
+  signal: AbortSignal,
+  pending: Promise<HostResult>,
+  op: 'prompt' | 'cancel',
+): Promise<SessionActionResult> {
   const captured = pending.then(
-    (result) => result.ok === true,
+    (result) => (result.ok === true ? accepted() : rejected('host-refused')),
     (error: unknown) => {
       warnHostFailure(op, error)
-      return false
+      return rejected('host-refused')
     },
   )
-  if (signal.aborted) return Promise.resolve(false)
+  if (signal.aborted) return Promise.resolve(rejected('unmounted'))
   let onAbort: () => void = () => {}
-  const aborted = new Promise<boolean>((resolve) => {
-    onAbort = (): void => resolve(false)
+  const aborted = new Promise<SessionActionResult>((resolve) => {
+    onAbort = (): void => resolve(rejected('unmounted'))
     signal.addEventListener('abort', onAbort, { once: true })
   })
   return Promise.race([captured, aborted]).finally(() => {
@@ -133,8 +149,8 @@ export function stateSourceOf(binding: SessionBinding): HostObservable<WebuiSess
 }
 
 /**
- * Send and stop for one borrowed binding. Both promises settle `false` instead of rejecting: the host
- * refused, threw, the binding is stale, or this call's signal aborted. A later call does not abort an
+ * Send and stop for one borrowed binding. Both promises settle a `SessionActionResult` instead of rejecting:
+ * blank text, a stale binding, an aborted signal, or the host refusing or throwing. A later call does not abort an
  * earlier one — `queue` appends a turn, and cancelling the previous send would drop that message.
  */
 export interface WebuiSessionActions {
@@ -142,21 +158,21 @@ export interface WebuiSessionActions {
    * Send `text` on this binding.
    * @param text - message text.
    * @param signal - cancellation for this call only.
-   * @returns whether the host accepted it.
+   * @returns `{ ok: true }` when the host accepted it, otherwise the reason. Never rejects.
    */
-  send(text: string, signal: AbortSignal): Promise<boolean>
+  send(text: string, signal: AbortSignal): Promise<SessionActionResult>
   /**
    * Stop the running turn.
-   * @param signal - cancellation for this call only. The host `cancel` takes no signal; losing the race still settles `false`.
-   * @returns whether the host accepted it.
+   * @param signal - cancellation for this call only. The host `cancel` takes no signal; losing the race still settles `unmounted`.
+   * @returns `{ ok: true }` when the host accepted it, otherwise the reason. Never rejects.
    */
-  stop(signal: AbortSignal): Promise<boolean>
+  stop(signal: AbortSignal): Promise<SessionActionResult>
 }
 
 /**
- * Actions for `binding`, cached by that binding. `send` and `stop` return `false` without calling the host
- * when `signal` is already aborted or the binding is no longer the one `sessions.binding` returns; `send`
- * also does when `text` is blank.
+ * Actions for `binding`, cached by that binding. `send` returns `blank-text` without calling the host when `text`
+ * is blank. Both return `no-session` when the binding is no longer the one `sessions.binding` returns, and
+ * `unmounted` when `signal` is already aborted. A host `{ ok: false }` or a throw is `host-refused`.
  * @param sessions - host session service, read only to re-check the borrowed binding.
  * @param binding - borrowed host binding.
  * @returns the stable actions.
@@ -167,20 +183,23 @@ export function sessionActionsOf(sessions: ISessions, binding: SessionBinding): 
   const actions: WebuiSessionActions = {
     async send(text, signal) {
       try {
-        if (signal.aborted || text.trim() === '' || !isCurrent(sessions, binding)) return false
+        if (text.trim() === '') return rejected('blank-text')
+        if (!isCurrent(sessions, binding)) return rejected('no-session')
+        if (signal.aborted) return rejected('unmounted')
         return await racedOk(signal, binding.session.prompt([{ type: 'text', text }], 'queue', signal), 'prompt')
       } catch (error) {
         warnHostFailure('prompt', error)
-        return false
+        return rejected('host-refused')
       }
     },
     async stop(signal) {
       try {
-        if (signal.aborted || !isCurrent(sessions, binding)) return false
+        if (!isCurrent(sessions, binding)) return rejected('no-session')
+        if (signal.aborted) return rejected('unmounted')
         return await racedOk(signal, binding.session.cancel(), 'cancel')
       } catch (error) {
         warnHostFailure('cancel', error)
-        return false
+        return rejected('host-refused')
       }
     },
   }

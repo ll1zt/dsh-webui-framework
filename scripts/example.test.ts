@@ -168,8 +168,8 @@ describe('hello-block contract version', () => {
   it('A3 warns once and registers nothing when the minor differs, and registers every block and preset when the version matches', async () => {
     const { apply, COMPILED_AGAINST } = await import('../examples/hello-block/src/client.tsx')
     const packageVersion = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string }).version
-    expect(COMPILED_AGAINST).toBe('0.3.4')
-    expect(packageVersion).toBe('0.3.4')
+    expect(COMPILED_AGAINST).toBe('0.4.0')
+    expect(packageVersion).toBe('0.4.0')
 
     const run = (version: string): { blocks: string[]; presets: string[]; warnings: number } => {
       let found = { blocks: [] as string[], presets: [] as string[] }
@@ -185,12 +185,12 @@ describe('hello-block contract version', () => {
     expect(matched.presets).toEqual(PRESETS)
 
     // 0.x: a different patch of the same minor stays compatible.
-    const patched = run('0.3.5')
+    const patched = run('0.4.1')
     expect(patched.warnings).toBe(0)
     expect(patched.blocks).toEqual(BLOCKS)
     expect(patched.presets).toEqual(PRESETS)
 
-    for (const version of ['0.4.0', '1.0.0']) {
+    for (const version of ['0.5.0', '1.0.0']) {
       const found = run(version)
       expect(found.warnings, version).toBe(1)
       expect(found.blocks, version).toEqual([])

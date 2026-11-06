@@ -2,6 +2,14 @@
 
 Every change to `contract/index.d.ts` needs a new version here, a matching `version` in `package.json` and a refreshed `contract/lock.json` (`node scripts/contract-lock.ts --write`).
 
+## 0.4.0
+
+This is an incompatible change: `WebuiSession.send` and `WebuiSession.stop` return `Promise<SessionActionResult>` instead of `Promise<boolean>`, so a plugin written against the old return type fails to compile; the contract adds `SessionActionRejection` and `SessionActionResult`, and a failure maps to `blank-text` (empty text, host not called), `no-session` (the session is gone), `unmounted` (the block has no mount or has unmounted) or `host-refused` (the host returned `{ ok: false }` or threw).
+
+- `SessionActionRejection` is `'host-refused' | 'no-session' | 'unmounted' | 'blank-text'`.
+- `SessionActionResult` is `{ ok: true }` or `{ ok: false, reason }`. Neither promise rejects. A host failure is logged once and the warning does not include the text that was sent.
+- The hello-block session example shows Sent or Stopped when the action is accepted, and the reason text when it is not.
+
 ## 0.3.4
 
 This is an additive, backwards compatible change: `WebuiLayoutService` gains `contractVersion`, the framework's contract version, and the contract lock checks that it matches the package.

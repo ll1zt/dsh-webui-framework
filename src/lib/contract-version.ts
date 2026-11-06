@@ -1,5 +1,5 @@
 /** Framework contract version, the same string as `package.json`'s `version`. */
-export const WEBUI_CONTRACT_VERSION: string = '0.3.4'
+export const WEBUI_CONTRACT_VERSION: string = '0.4.0'
 
 interface ParsedContractVersion {
   major: number
