@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
 import type { Context } from '@deepseek-ai/cordis'
+import type { WebuiSession, WebuiSessionState } from '@lllzt/dsh-webui-framework/contract'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { createElement } from 'react'
+import { createElement, useSyncExternalStore } from 'react'
 import type { ComponentType } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../examples/hello-block/src/client.tsx'
@@ -99,6 +100,52 @@ const fakeProps = (blockId: string, contentId: string) => {
   }
 }
 
+/**
+ * Session stand-in. `useState` subscribes with React's `useSyncExternalStore` (no with-selector) and
+ * `setRunning` replaces the state object, then notifies listeners inside `act`.
+ */
+const fakeSession = () => {
+  let state: WebuiSessionState = {
+    sessionId: 's1',
+    running: false,
+    blank: false,
+    removed: false,
+    openState: 'open',
+    lastAgentError: null,
+  }
+  const listeners = new Set<() => void>()
+  const subscribe = (listener: () => void): (() => void) => {
+    listeners.add(listener)
+    return () => {
+      listeners.delete(listener)
+    }
+  }
+  const send = vi.fn<(text: string) => Promise<boolean>>()
+  const stop = vi.fn<() => Promise<boolean>>()
+  const session: WebuiSession = {
+    sessionId: 's1',
+    useState(select) {
+      return select(useSyncExternalStore(subscribe, () => state))
+    },
+    send,
+    stop,
+  }
+  return {
+    session,
+    send,
+    stop,
+    setRunning(running: boolean) {
+      act(() => {
+        state = { ...state, running }
+        for (const listener of [...listeners]) listener()
+      })
+    },
+  }
+}
+
+/** Block props plus `session`. A new object on every call, so a rerender does not reuse the props reference. */
+const sessionProps = (session: WebuiSession) => ({ ...fakeProps('hello.session', ''), session })
+
 describe('example session block', () => {
   it('A1 loads the example client by a static import', () => {
     expect(typeof apply).toBe('function')
@@ -106,14 +153,15 @@ describe('example session block', () => {
 
   it('A3 shows a mount number that differs per mount and survives a rerender', async () => {
     const HelloSession = await registeredBlock('hello.session')
+    const { session } = fakeSession()
 
-    const first = render(createElement(HelloSession, { tick: 1 }))
+    const first = render(createElement(HelloSession, sessionProps(session)))
     const firstNumber = mountNumber(first.container.textContent)
-    first.rerender(createElement(HelloSession, { tick: 2 }))
+    first.rerender(createElement(HelloSession, sessionProps(session)))
     expect(mountNumber(first.container.textContent)).toBe(firstNumber)
     first.unmount()
 
-    const second = render(createElement(HelloSession, { tick: 1 }))
+    const second = render(createElement(HelloSession, sessionProps(session)))
     expect(mountNumber(second.container.textContent)).toBeGreaterThan(firstNumber)
   })
 
@@ -180,6 +228,106 @@ describe('example session block', () => {
     expect(typeof lastGuard()).toBe('function')
     view.unmount()
     expect(lastGuard()).toBeNull()
+  })
+
+  it('A1 shows Session s1 and idle, then running without remounting', async () => {
+    const HelloSession = await registeredBlock('hello.session')
+    const { session, setRunning } = fakeSession()
+    const view = render(createElement(HelloSession, sessionProps(session)))
+    const text = () => view.container.textContent ?? ''
+
+    expect(text()).toContain('Session s1')
+    expect(text()).toContain('idle')
+    expect(text()).not.toContain('running')
+    const mounted = mountNumber(text())
+
+    setRunning(true)
+
+    expect(text()).toContain('running')
+    expect(text()).not.toContain('idle')
+    expect(text()).toContain('Session s1')
+    expect(mountNumber(text())).toBe(mounted)
+  })
+
+  it('A2 calls session.send once for Send hello and session.stop once for Stop, showing the verdict', async () => {
+    const HelloSession = await registeredBlock('hello.session')
+    const layoutActions = [
+      'open',
+      'close',
+      'activate',
+      'move',
+      'split',
+      'resize',
+      'resetToPreset',
+      'undo',
+      'redo',
+    ] as const
+    const message = 'Hello from the example session block'
+
+    const renderSession = () => {
+      const fake = fakeSession()
+      const props = sessionProps(fake.session)
+      const view = render(createElement(HelloSession, props))
+      return { fake, props, view }
+    }
+    const expectNoOtherAction = (
+      fake: ReturnType<typeof fakeSession>,
+      props: ReturnType<typeof sessionProps>,
+      called: 'send' | 'stop',
+    ) => {
+      expect(fake.session[called === 'send' ? 'stop' : 'send']).not.toHaveBeenCalled()
+      expect(props.tab.setTitle).not.toHaveBeenCalled()
+      expect(props.tab.setCloseGuard).not.toHaveBeenCalled()
+      for (const name of layoutActions) expect(props.layout[name]).not.toHaveBeenCalled()
+    }
+
+    {
+      const { fake, props, view } = renderSession()
+      fake.send.mockResolvedValue(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Send hello' }))
+      expect(fake.send).toHaveBeenCalledTimes(1)
+      expect(fake.send).toHaveBeenCalledWith(message)
+      expectNoOtherAction(fake, props, 'send')
+      expect(await screen.findByText('Sent')).toBeTruthy()
+      expect(screen.queryByText('Send refused')).toBeNull()
+      view.unmount()
+    }
+
+    {
+      const { fake, props, view } = renderSession()
+      fake.send.mockResolvedValue(false)
+      fireEvent.click(screen.getByRole('button', { name: 'Send hello' }))
+      expect(fake.send).toHaveBeenCalledTimes(1)
+      expect(fake.send).toHaveBeenCalledWith(message)
+      expectNoOtherAction(fake, props, 'send')
+      expect(await screen.findByText('Send refused')).toBeTruthy()
+      expect(screen.queryByText('Sent')).toBeNull()
+      view.unmount()
+    }
+
+    {
+      const { fake, props, view } = renderSession()
+      fake.stop.mockResolvedValue(true)
+      fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+      expect(fake.stop).toHaveBeenCalledTimes(1)
+      expect(fake.stop).toHaveBeenCalledWith()
+      expectNoOtherAction(fake, props, 'stop')
+      expect(await screen.findByText('Stopped')).toBeTruthy()
+      expect(screen.queryByText('Stop refused')).toBeNull()
+      view.unmount()
+    }
+
+    {
+      const { fake, props, view } = renderSession()
+      fake.stop.mockResolvedValue(false)
+      fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+      expect(fake.stop).toHaveBeenCalledTimes(1)
+      expect(fake.stop).toHaveBeenCalledWith()
+      expectNoOtherAction(fake, props, 'stop')
+      expect(await screen.findByText('Stop refused')).toBeTruthy()
+      expect(screen.queryByText('Stopped')).toBeNull()
+      view.unmount()
+    }
   })
 })
 
