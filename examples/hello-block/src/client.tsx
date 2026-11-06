@@ -140,7 +140,23 @@ const PRESET: LayoutPreset = {
   },
 }
 
+/** Contract version this example was compiled against. */
+export const COMPILED_AGAINST = '0.3.4'
+
 export function apply(ctx: Context) {
+  // Canonical rule: isCompatibleContract in src/lib/contract-version.ts (0.x same minor, from 1.0 same major).
+  // A host double that predates contractVersion has no string to compare, and registers as it did before.
+  const hostVersion = ctx.webuiLayout.contractVersion
+  const parts = (version: string): string[] => (/^\d+(?:\.\d+){2,}$/.test(version) ? version.split('.') : [])
+  const host = typeof hostVersion === 'string' ? parts(hostVersion) : []
+  const plugin = parts(COMPILED_AGAINST)
+  const compatible = host[0] !== undefined && host[0] === plugin[0] && (host[0] !== '0' || host[1] === plugin[1])
+  if (typeof hostVersion === 'string' && !compatible) {
+    console.warn(
+      `hello-block was compiled against contract ${COMPILED_AGAINST} but this framework is ${hostVersion}; not registering blocks or presets`,
+    )
+    return
+  }
   ctx.inject(['webuiLayout'], (ctx) => {
     const layout = ctx.webuiLayout
     const disposers = [

@@ -11,6 +11,7 @@ import type {
   SessionBlockProps,
   WebuiLayoutService,
 } from '@lllzt/dsh-webui-framework/contract'
+import { WEBUI_CONTRACT_VERSION } from '../../lib/contract-version.ts'
 import { WEBUI_SLOT_KEYS } from '../types.ts'
 import { LOG_PREFIX } from './log-prefix.ts'
 import type { WebuiSessionInject } from './session-adapter.ts'
@@ -356,6 +357,8 @@ export class BlockRegistry {
  * ref/deepseek-harness). So forwarding `this.ctx` as the owner makes registrations follow the contributor's fiber.
  */
 export class WebuiLayout extends Service implements WebuiLayoutService {
+  readonly contractVersion: string = WEBUI_CONTRACT_VERSION
+
   constructor(
     ctx: Context,
     private readonly registry: BlockRegistry,

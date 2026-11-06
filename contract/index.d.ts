@@ -281,6 +281,11 @@ export type BlockComponentOf<M extends BlockMeta> = ComponentType<
 export type Disposer = () => void
 
 export interface WebuiLayoutService {
+  /**
+   * The framework's contract version. A plugin should compare it with the version it compiled against before
+   * registering.
+   */
+  readonly contractVersion: string
   registerBlock<M extends BlockMeta>(meta: M, component: BlockComponentOf<M>): Disposer
   registerPreset(preset: LayoutPreset): Disposer
 }
