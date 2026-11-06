@@ -116,12 +116,25 @@ useEffect(() => {
 
 各动作可能的拒绝原因，按检查顺序：
 
-- `open`：`unknown-block`。
+- `open`：目标块未注册时是 `unknown-block`。带 `placement` 时，参照块未注册也是 `unknown-block`，参照标签未打开是 `no-such-tab`。
 - `close`：`unknown-block`，然后 `not-closable`，然后 `no-such-tab`，然后 `vetoed`。
 - `activate`：`unknown-block`，然后 `no-such-tab`。
 - `resize`：`unknown-block`，然后 `no-such-tab`，然后 `not-in-split`。
 - `resetToPreset`：只会是 `vetoed`；当某个已打开、而预设里没有的标签的守卫拒绝时整个重置不生效，预设保留的标签的守卫不会被问。
 - `undo` / `redo`：`no-history`，然后 `vetoed`。
+
+`open(target, placement?)` 的第二个参数可选，类型是 `OpenPlacement`。不传时与现在相同：在活动格子里打开目标，已经打开就只激活它。`placement` 含 `beside`（参照的已打开标签，单实例块忽略 `contentId`）和 `side`（`'left' | 'right' | 'top' | 'bottom'`）。框架把参照标签所在的格子拆成两栏，两边各占一半，目标放进新格子：
+
+- `left`：左右分栏，新格子在左（在前）。
+- `right`：左右分栏，新格子在右（在后）。
+- `top`：上下分栏，新格子在上（在前）。
+- `bottom`：上下分栏，新格子在下（在后）。
+
+目标标签如果已经打开，会被移进这个新格子，而不是再复制一份。参照块没有注册时拒绝原因为 `unknown-block`；参照标签不在布局里时拒绝原因为 `no-such-tab`。被拒绝时布局不变。
+
+```tsx
+layout.open({ blockId: 'hello.note', contentId: 'n1' }, { beside: { blockId: 'hello.root' }, side: 'right' })
+```
 
 ### 撤销与重做
 
@@ -200,7 +213,20 @@ function Opener() {
 
 `session.sessionId` 是当前主会话的 id。`session.useState(select, equal?)` 是 hook：在渲染期间调用，每次渲染的调用顺序要相同。选出的值不变时块不重渲染，默认按 `Object.is` 比较；传入 `equal` 时用它比较。可读的状态是 `WebuiSessionState`：`sessionId`、`running`、`blank`、`removed`、`openState`（`'cold' | 'loading' | 'open' | 'error'`）和 `lastAgentError`。同一个会话的多次渲染之间，`session` 是同一个对象。
 
-`session.send(text)` 以 `'queue'` 模式追加一条消息；`session.stop()` 停止正在运行的回合。宿主接受时解析为 `true`；宿主拒绝、抛错、会话已经不在，或块已经卸载时解析为 `false`。两者都永不 reject。块卸载时，在途的请求被取消，并以 `false` 落定。
+`session.send(text)` 以 `'queue'` 模式追加一条消息；`session.stop()` 停止正在运行的回合。两者都返回 `Promise<SessionActionResult>`：宿主接受时是 `{ ok: true }`，否则是 `{ ok: false, reason }`。两者都永不 reject。块卸载时，在途的请求被取消，并以 `unmounted` 落定。
+
+**0.4.0 迁移。** `send` 与 `stop` 从 `Promise<boolean>` 改为 `Promise<SessionActionResult>`，这是不兼容的改动：按布尔值使用返回值的代码编译失败。
+
+`reason` 是 `SessionActionRejection`，四种：
+
+| reason         | 含义                                                                             |
+| -------------- | -------------------------------------------------------------------------------- |
+| `host-refused` | 宿主返回 `{ ok: false }`，或调用抛错。失败会记一条警告，警告里不含发出去的文本   |
+| `no-session`   | 这个块绑定的会话已经不是宿主上的那个会话                                         |
+| `unmounted`    | 块还没有挂载，或已经卸载；这次调用的取消信号若在宿主落定之前触发，也是这个原因   |
+| `blank-text`   | 只用于 `send`：文本去掉首尾空白后是空的，宿主不会被调用。`stop` 不会返回这个原因 |
+
+插件可以照 `locale/zh.json` 的 `session.result.*` 给用户看原因，示例文案是：`blank-text`「文本为空（blank-text）」，`host-refused`「宿主拒绝了（host-refused）」，`no-session`「会话已不在（no-session）」，`unmounted`「块已卸载（unmounted）」；接受时 `send` 是「已发送」，`stop` 是「已停止」。`examples/hello-block` 的 session 块用英文的同一套文案，并按 `result.ok` 收窄后显示。
 
 没有主会话时，session 块显示空态（块不挂载）。框架不选主会话，也不提供选主会话的插件：当前主会话由持有 `mainView` 的路由插件决定。主会话切换时，session 块重挂一次。
 
@@ -216,16 +242,55 @@ function HelloSession({ session }: SessionBlockProps) {
       <p>
         Session {session.sessionId}, {running ? 'running' : 'idle'}
       </p>
-      <button type="button" onClick={() => void session.send('Hello')}>
+      <button
+        type="button"
+        onClick={() => {
+          void session.send('Hello').then((result) => {
+            if (result.ok) return
+            void result.reason
+          })
+        }}
+      >
         Send hello
       </button>
-      <button type="button" onClick={() => void session.stop()}>
+      <button
+        type="button"
+        onClick={() => {
+          void session.stop().then((result) => {
+            if (result.ok) return
+            void result.reason
+          })
+        }}
+      >
         Stop
       </button>
     </>
   )
 }
 ```
+
+### 主题 token
+
+`WebuiTokenName` 在原有中性色之外增加 6 个状态色，错误、警告、成功各一对前景和背景。它们别名宿主的 `--dsw-alias-state-*` 变量（警告在宿主那边叫 `warn`，不叫 `warning`），随宿主主题切换而变化。插件什么都不用做就能用上：框架会把 `tokens.css` 注入页面。
+
+| token                | 宿主变量                             |
+| -------------------- | ------------------------------------ |
+| `--state-error-fg`   | `--dsw-alias-state-error-primary`    |
+| `--state-error-bg`   | `--dsw-alias-state-error-tertiary`   |
+| `--state-warning-fg` | `--dsw-alias-state-warn-primary`     |
+| `--state-warning-bg` | `--dsw-alias-state-warn-tertiary`    |
+| `--state-success-fg` | `--dsw-alias-state-success-primary`  |
+| `--state-success-bg` | `--dsw-alias-state-success-tertiary` |
+
+块里写 `color: var(--state-error-fg)` 或 `background: var(--state-error-bg)` 即可，不要自己挑颜色。
+
+### 版本与兼容
+
+`ctx.webuiLayout.contractVersion` 是框架当前的契约版本，字符串与发布的包版本、`WEBUI_CONTRACT_VERSION` 相同。插件在注册块和预设之前，拿它和自己编译时所针对的版本比较。
+
+兼容规则：`0.x` 时次版本（minor）相同才兼容，`1.0` 起主版本（major）相同才兼容。例如宿主 `0.4.2` 与针对 `0.4.0` 编译的插件兼容，与针对 `0.3.0` 编译的不兼容；宿主 `1.2.0` 与针对 `1.0.0` 编译的插件兼容，与针对 `2.0.0` 编译的不兼容。解析不了的版本字符串一律不兼容。
+
+判定函数是 `isCompatibleContract`，写在框架的 `src/lib/contract-version.ts`（契约只发布类型，插件引不到这个函数）。示例插件 [`examples/hello-block/src/client.tsx`](examples/hello-block/src/client.tsx) 用 `COMPILED_AGAINST` 记下编译时的版本，按同一条规则比较：不兼容时在控制台告警一次，并且不注册块与预设。插件照这个写法抄即可。宿主版本还没有 `contractVersion`（不是字符串）时，示例照旧注册。
 
 ### 只读的布局视图
 
@@ -237,7 +302,7 @@ function HelloSession({ session }: SessionBlockProps) {
 - `view.isActive(target)`：该标签是否已打开并且是所在窗格的活动标签；
 - `view.canUndo()` / `view.canRedo()`：`layout.undo()` / `layout.redo()` 此刻有没有步骤可走。
 
-完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块（带「Undo」「Redo」按钮，按 `view.canUndo()` / `view.canRedo()` 启用，还有一个「Open dialog」按钮，用宿主的 `Modal` 弹出对话框）、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭，还有一个「Note text」文本框，用来在输入框里试键盘命令）、一个 session 块（显示会话 id 与运行状态，并有「Send hello」和「Stop」两个按钮）、一个故意抛错的块和一个预设。示例不进发布包。
+完整的可构建示例在 [`examples/hello-block`](examples/hello-block)：一个 root 块（带「Undo」「Redo」按钮，按 `view.canUndo()` / `view.canRedo()` 启用，还有一个「Open dialog」按钮，用宿主的 `Modal` 弹出对话框）、一个多实例的笔记块（每个标签自己的标题，勾选「Unsaved changes」后否决关闭，还有一个「Note text」文本框，用来在输入框里试键盘命令）、一个 session 块（显示会话 id 与运行状态，并有「Send hello」和「Stop」两个按钮；动作按 `result.ok` 收窄，失败时显示 reason）、一个故意抛错的块和一个预设。示例不进发布包。
 
 ## 首版不做
 
