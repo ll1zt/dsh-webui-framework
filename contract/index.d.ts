@@ -136,10 +136,25 @@ export type LayoutActionRejection =
  */
 export type LayoutActionResult = { readonly ok: true } | { readonly ok: false; readonly reason: LayoutActionRejection }
 
+/**
+ * Where `open` puts a tab that should not simply join the active pane: a new pane beside one that is already open.
+ * `left` and `top` put the new pane first; `right` and `bottom` put it second.
+ */
+export interface OpenPlacement {
+  /** The tab whose pane is split. A single-instance block ignores `contentId`. */
+  readonly beside: BlockTarget
+  readonly side: 'left' | 'right' | 'top' | 'bottom'
+}
+
 /** Layout operations a block instance may ask for. */
 export interface BlockLayoutActions {
-  /** Opens the block's tab, or activates it when open. Rejected with `unknown-block`. */
-  open(target: BlockTarget): LayoutActionResult
+  /**
+   * Opens the block's tab, or activates it when open. With `placement`, splits the pane that holds the beside tab and
+   * opens the tab there; a tab that is already open is moved, not copied. Rejected with `unknown-block`. A placement
+   * whose beside block is not registered is rejected with `unknown-block`, and one whose beside tab is not open with
+   * `no-such-tab`.
+   */
+  open(target: BlockTarget, placement?: OpenPlacement): LayoutActionResult
   /** Closes the tab. Rejected with `unknown-block`, then `not-closable`, then `no-such-tab`, then `vetoed` by the tab's close guard. */
   close(target: BlockTarget): LayoutActionResult
   /** Activates the tab. Rejected with `unknown-block`, then `no-such-tab`. */
