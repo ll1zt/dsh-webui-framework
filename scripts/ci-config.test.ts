@@ -263,4 +263,46 @@ describe('dsh-alpha 工作流', () => {
     expect(after.length).toBeGreaterThan(0)
     expect(after.filter((step) => !(step.if ?? '').includes(`steps.${id}.outputs.changed`))).toEqual([])
   })
+
+  it('A3 smoke runs after host-compat and before push, and a smoke failure is reported as smoke', () => {
+    const { text, steps, indexOf } = loadAlpha()
+    const gate = indexOf('npm run gate')
+    const compat = indexOf('scripts/host-compat.ts')
+    const push = indexOf('git', 'push', 'dsh-alpha/')
+    const smoke = steps.findIndex(
+      (step) => (step.run ?? '').includes('scripts/host-run.ts') && (step.run ?? '').includes('scripts/host-smoke.ts'),
+    )
+    expect(gate).toBeGreaterThanOrEqual(0)
+    expect(compat).toBeGreaterThanOrEqual(0)
+    expect(push).toBeGreaterThanOrEqual(0)
+    expect(smoke).toBeGreaterThan(gate)
+    expect(smoke).toBeGreaterThan(compat)
+    expect(smoke).toBeLessThan(push)
+
+    const step = steps[smoke]
+    expect(step?.if ?? '').toContain('steps.bump.outputs.changed')
+    const body = JSON.stringify(step)
+    expect(body).toContain('npm install')
+    expect(body).toContain('--prefix')
+    expect(body).toContain('.host-dsh')
+    expect(body).toContain('--ignore-scripts')
+    expect(body).toMatch(/@deepseek-ai\/dsh[@=]/)
+    expect(
+      body.includes('matrix.version') || body.includes('DSH_VERSION') || body.includes('steps.bump.outputs.version'),
+    ).toBe(true)
+    expect(body).toContain('npm pack')
+    expect(body.includes('DSH_HOME') || body.includes('--home')).toBe(true)
+    expect(body).toContain('scripts/host-run.ts')
+    expect(body).toContain('scripts/host-smoke.ts')
+
+    const id = step?.id
+    expect(id).toBeTruthy()
+    const report = steps.find((item) => item.name === 'Report failure')
+    expect(report?.if ?? '').toContain(`steps.${id}.outcome`)
+    expect(report?.run ?? '').toMatch(/DSH_FAILED_STEP=["']?smoke["']?/)
+
+    const gitAdds = text.split('\n').filter((line) => line.includes('git add'))
+    expect(gitAdds.length).toBeGreaterThan(0)
+    for (const line of gitAdds) expect(line).not.toContain('.host-dsh')
+  })
 })
