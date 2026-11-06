@@ -142,7 +142,7 @@ jobs:
         working-directory: source
         run: |
           set -eu
-          nix develop . --no-write-lock-file --command bash -c 'npm install --include=dev --ignore-scripts'
+          nix develop . --no-write-lock-file --command bash -c 'npm install --include=dev --ignore-scripts > npm-install.log 2>&1'
 
       - name: gate
         id: gate
@@ -217,4 +217,8 @@ jobs:
           else
             export DSH_FAILED_STEP=host-compat
           fi
-          nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-report.ts --fail "$DSH_FAILED_STEP" "$DSH_VERSION" "$RUN_URL"'
+          if [ "$DSH_FAILED_STEP" = install ] && [ -f npm-install.log ]; then
+            nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-report.ts --fail "$DSH_FAILED_STEP" "$DSH_VERSION" "$RUN_URL" --npm-log npm-install.log'
+          else
+            nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-report.ts --fail "$DSH_FAILED_STEP" "$DSH_VERSION" "$RUN_URL"'
+          fi
