@@ -14,6 +14,15 @@ const INPUTS = ['package.json', 'CHANGELOG.md', 'contract/index.d.ts', 'contract
 
 const read = (path: string): string => readFileSync(path, 'utf8')
 
+/** Body of one changelog section, from its `## <version>` heading through the line before the next heading. */
+const changelogSection = (markdown: string, version: string): string | undefined => {
+  const lines = markdown.split(/\r?\n/)
+  const start = lines.findIndex((line) => line === `## ${version}` || line.startsWith(`## ${version} `))
+  if (start < 0) return undefined
+  const next = lines.findIndex((line, index) => index > start && line.startsWith('## '))
+  return lines.slice(start, next < 0 ? lines.length : next).join('\n')
+}
+
 /** The lock hash rule: sha256 hex of the contract with CRLF normalised to LF. */
 const contractHash = (root: string): string =>
   createHash('sha256')
@@ -63,22 +72,43 @@ afterEach(() => {
 })
 
 describe('checkContractLock on the repository', () => {
-  it('A1 A4 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.3.0 and the contract hash', () => {
+  it('A1 A4 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.3.1 and the contract hash', () => {
     expect(checkContractLock(ROOT)).toEqual([])
 
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
-    expect(manifest.version).toBe('0.3.0')
+    expect(manifest.version).toBe('0.3.1')
     const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
       version: string
       packages: { '': { version: string } }
     }
-    expect(lockfile.version).toBe('0.3.0')
-    expect(lockfile.packages[''].version).toBe('0.3.0')
-    expect(read(join(ROOT, 'CHANGELOG.md'))).toMatch(/^## 0\.3\.0\b/m)
+    expect(lockfile.version).toBe('0.3.1')
+    expect(lockfile.packages[''].version).toBe('0.3.1')
+    expect(read(join(ROOT, 'CHANGELOG.md'))).toMatch(/^## 0\.3\.1\b/m)
     expect(JSON.parse(read(join(ROOT, 'contract/lock.json')))).toEqual({
-      version: '0.3.0',
+      version: '0.3.1',
       sha256: contractHash(ROOT),
     })
+  })
+
+  it('A5 package.json, package-lock.json and contract/lock.json are 0.3.1 and CHANGELOG calls the change additive and compatible', () => {
+    const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
+    expect(manifest.version).toBe('0.3.1')
+    const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
+      version: string
+      packages: { '': { version: string } }
+    }
+    expect(lockfile.version).toBe('0.3.1')
+    expect(lockfile.packages[''].version).toBe('0.3.1')
+    const contractLock = JSON.parse(read(join(ROOT, 'contract/lock.json'))) as { version: string }
+    expect(contractLock.version).toBe('0.3.1')
+
+    const section = changelogSection(read(join(ROOT, 'CHANGELOG.md')), '0.3.1')
+    expect(section, '## 0.3.1 heading').toBeDefined()
+    const text = section ?? ''
+    // "incompatible" is not the word "compatible"; a negated phrase is not either.
+    expect(text).toMatch(/\badditive\b/i)
+    expect(text).toMatch(/\bcompatible\b/i)
+    expect(text).not.toMatch(/\bnot\b(?:[\s-]+[\w-]+){0,5}[\s-]+compatible\b/i)
   })
 })
 
