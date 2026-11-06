@@ -259,12 +259,14 @@ describe('reportRun on failure', () => {
     const gate = fakeForge()
     await reportRun(logged('gate'), gate.forge)
     expect(gate.writes()[0]?.body?.title).toBe(ISSUE_TITLE)
-    expect(String(gate.writes()[0]?.body?.body)).toBe(`失败的步骤：gate\n\n运行：${RUN_URL}\n`)
+    expect(String(gate.writes()[0]?.body?.body)).toContain(`失败的步骤：gate\n\n运行：${RUN_URL}\n`)
   })
 })
 
 describe('reportRun on success', () => {
-  it('A4 opens a PR from the branch into main when no open PR has that branch', async () => {
+  // Guard id is this exact title. It cannot also match the A<n> title prefix.
+  // eslint-disable-next-line no-restricted-syntax
+  it('A4:A4 opens a PR from the branch into main when no open PR has that branch', async () => {
     const fake = fakeForge({
       pulls: [
         { number: 5, state: 'open', head: { ref: 'dsh-alpha/0.2.2-alpha.9' } },
@@ -280,6 +282,10 @@ describe('reportRun on success', () => {
     expect(writes[0]?.method).toBe('POST')
     expect(writes[0]?.path).toBe(`${API}/pulls`)
     expect(writes[0]?.body).toMatchObject({ head: BRANCH, base: 'main', title: PR_TITLE })
+    expect(String(writes[0]?.body?.body)).toContain(
+      `dsh ${VERSION} 的门禁（npm run gate）与 host-compat 检查均已通过，依赖与 lockfile 已更新。`,
+    )
+    expect(String(writes[0]?.body?.body)).toContain('由 dsh-alpha 工作流自动生成。')
     expect(result.number).toBe(fake.pulls.find((pull) => pull.state === 'open' && pull.head.ref === BRANCH)?.number)
     const list = fake.requests.find((request) => request.method === 'GET' && request.path === `${API}/pulls`)
     expect(list?.query.get('state')).toBe('open')
@@ -307,5 +313,51 @@ describe('reportRun on success', () => {
     expect(error).toBeInstanceOf(Error)
     expect((error as Error).message).not.toContain(TOKEN)
     expect(fake.writes().every((request) => request.authorization?.includes(TOKEN) === true)).toBe(true)
+  })
+})
+
+const REPORT = ['## 宿主差异', '', '- @deepseek-ai/cordis：无变化', ''].join('\n')
+
+describe('reportRun report paragraph', () => {
+  it('A3 the pass branch PR body and the fail branch issue body contain the report paragraph', async () => {
+    const pass = fakeForge()
+    await reportRun({ ...passed, report: REPORT }, pass.forge)
+    const prBody = String(pass.writes()[0]?.body?.body)
+    expect(prBody).toContain(
+      `dsh ${VERSION} 的门禁（npm run gate）与 host-compat 检查均已通过，依赖与 lockfile 已更新。`,
+    )
+    expect(prBody).toContain('由 dsh-alpha 工作流自动生成。')
+    expect(prBody).toContain(REPORT)
+    expect(prBody.indexOf('由 dsh-alpha 工作流自动生成。')).toBeLessThan(prBody.indexOf('宿主差异'))
+
+    const created = fakeForge()
+    await reportRun({ ...failed('host-compat'), report: REPORT }, created.forge)
+    const issueBody = String(created.writes()[0]?.body?.body)
+    expect(issueBody).toContain('失败的步骤：host-compat')
+    expect(issueBody).toContain(RUN_URL)
+    expect(issueBody).toContain(REPORT)
+    expect(issueBody.indexOf(RUN_URL)).toBeLessThan(issueBody.indexOf('宿主差异'))
+
+    const commented = fakeForge({
+      issues: [{ number: 7, title: ISSUE_TITLE, state: 'open' }],
+    })
+    await reportRun({ ...failed('gate'), report: REPORT }, commented.forge)
+    expect(commented.writes()[0]?.path).toBe(`${API}/issues/7/comments`)
+    const comment = String(commented.writes()[0]?.body?.body)
+    expect(comment).toContain('失败的步骤：gate')
+    expect(comment).toContain(REPORT)
+    expect(comment.indexOf(RUN_URL)).toBeLessThan(comment.indexOf('宿主差异'))
+  })
+
+  it('A3 without a report the PR body and the issue body stay as before', async () => {
+    const pass = fakeForge()
+    await reportRun(passed, pass.forge)
+    expect(String(pass.writes()[0]?.body?.body)).toBe(
+      `dsh ${VERSION} 的门禁（npm run gate）与 host-compat 检查均已通过，依赖与 lockfile 已更新。\n\n由 dsh-alpha 工作流自动生成。\n`,
+    )
+
+    const fail = fakeForge()
+    await reportRun(failed('gate'), fail.forge)
+    expect(String(fail.writes()[0]?.body?.body)).toBe(`失败的步骤：gate\n\n运行：${RUN_URL}\n`)
   })
 })
