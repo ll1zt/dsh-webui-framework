@@ -1,3 +1,8 @@
+import { execFile } from 'node:child_process'
+import { createServer } from 'node:http'
+import type { Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { reportRun } from './dsh-report.ts'
 import type { DshRunOutcome } from './dsh-report.ts'
@@ -359,5 +364,132 @@ describe('reportRun report paragraph', () => {
     const fail = fakeForge()
     await reportRun(failed('gate'), fail.forge)
     expect(String(fail.writes()[0]?.body?.body)).toBe(`失败的步骤：gate\n\n运行：${RUN_URL}\n`)
+  })
+})
+
+const smokeFailure = {
+  ok: false as const,
+  version: VERSION,
+  step: 'smoke' as const,
+  runUrl: RUN_URL,
+}
+
+describe('reportRun on a smoke failure', () => {
+  it('A3 a smoke failure opens or updates an issue whose body names smoke', async () => {
+    const created = fakeForge()
+    const first = await reportRun(smokeFailure, created.forge)
+    expect(first.action).toBe('issue-created')
+    expect(created.writes()[0]?.body?.title).toBe(ISSUE_TITLE)
+    const createdBody = String(created.writes()[0]?.body?.body)
+    expect(createdBody).toContain('失败的步骤：smoke')
+    expect(createdBody).toContain(RUN_URL)
+
+    const existing = fakeForge({
+      issues: [{ number: 7, title: ISSUE_TITLE, state: 'open' }],
+    })
+    const second = await reportRun(smokeFailure, existing.forge)
+    expect(second).toEqual({ action: 'issue-commented', number: 7 })
+    expect(existing.writes()[0]?.path).toBe(`${API}/issues/7/comments`)
+    const comment = String(existing.writes()[0]?.body?.body)
+    expect(comment).toContain('失败的步骤：smoke')
+    expect(comment).toContain(RUN_URL)
+  })
+})
+
+interface CliResult {
+  code: number | null
+  stdout: string
+  stderr: string
+}
+
+/** Forgejo stand-in on localhost. The CLI's fetch is not injectable, so nothing dials a real forge. */
+const serveForge = async () => {
+  const issues: { number: number; title: string; state: 'open' }[] = []
+  const bodies: string[] = []
+  const server: Server = createServer((req, res) => {
+    const chunks: Buffer[] = []
+    req.on('data', (chunk: Buffer) => chunks.push(chunk))
+    req.on('end', () => {
+      const raw = Buffer.concat(chunks).toString('utf8')
+      const body = raw === '' ? undefined : (JSON.parse(raw) as { title?: string; body?: string })
+      const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+      const json = (status: number, payload: unknown) => {
+        res.writeHead(status, { 'content-type': 'application/json', connection: 'close' })
+        res.end(JSON.stringify(payload))
+      }
+      if (req.method === 'GET' && url.pathname === `${API}/issues`) {
+        json(
+          200,
+          issues.filter((issue) => issue.state === 'open'),
+        )
+        return
+      }
+      if (req.method === 'POST' && url.pathname === `${API}/issues`) {
+        const issue = { number: 11 + issues.length, title: String(body?.title), state: 'open' as const }
+        issues.push(issue)
+        bodies.push(String(body?.body))
+        json(201, issue)
+        return
+      }
+      if (req.method === 'POST' && /\/issues\/\d+\/comments$/.test(url.pathname)) {
+        bodies.push(String(body?.body))
+        json(201, { id: 1 })
+        return
+      }
+      json(404, { message: 'not found' })
+    })
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('forge stand-in has no port')
+  const port = (address as AddressInfo).port
+  const run = (args: string[]) =>
+    new Promise<CliResult>((resolve) => {
+      execFile(
+        process.execPath,
+        ['scripts/dsh-report.ts', ...args],
+        {
+          cwd: fileURLToPath(new URL('..', import.meta.url)),
+          env: {
+            ...process.env,
+            GITHUB_SERVER_URL: `http://127.0.0.1:${port}`,
+            GITHUB_REPOSITORY: REPO,
+            DSH_ALPHA_TOKEN: 'cli-token-smoke',
+          },
+          timeout: 10000,
+        },
+        (error, stdout, stderr) => {
+          const code = error === null ? 0 : typeof error.code === 'number' ? error.code : null
+          resolve({ code, stdout, stderr })
+        },
+      )
+    })
+  const close = () =>
+    new Promise<void>((resolve, reject) => {
+      server.closeAllConnections()
+      server.close((error) => (error ? reject(error) : resolve()))
+    })
+  return { bodies, run, close }
+}
+
+describe('dsh-report CLI smoke step', () => {
+  it('A3 the CLI accepts --fail smoke and the issue body names smoke', async () => {
+    const forge = await serveForge()
+    try {
+      const created = await forge.run(['--fail', 'smoke', VERSION, RUN_URL])
+      expect(created.code).toBe(0)
+      expect(created.stdout).toContain('"action":"issue-created"')
+      expect(created.stdout + created.stderr).not.toContain('cli-token-smoke')
+      expect(forge.bodies[0]).toContain('失败的步骤：smoke')
+      expect(forge.bodies[0]).toContain(RUN_URL)
+
+      const commented = await forge.run(['--fail', 'smoke', VERSION, RUN_URL])
+      expect(commented.code).toBe(0)
+      expect(commented.stdout).toContain('"action":"issue-commented"')
+      expect(forge.bodies[1]).toContain('失败的步骤：smoke')
+      expect(forge.bodies[1]).toContain(RUN_URL)
+    } finally {
+      await forge.close()
+    }
   })
 })
