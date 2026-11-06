@@ -284,6 +284,13 @@ export type WebuiTokenName =
   | '--accent'
   | '--accent-hover'
   | '--accent-contrast'
+  // Aliases of the host state ramps (`--dsw-alias-state-*`).
+  | '--state-error-fg'
+  | '--state-error-bg'
+  | '--state-warning-fg'
+  | '--state-warning-bg'
+  | '--state-success-fg'
+  | '--state-success-bg'
   | '--font-ui'
   | '--font-mono'
   | '--content-font-size'

@@ -33,6 +33,37 @@ const tokenSnippet = (tokens: readonly string[]): string => {
   ].join('\n')
 }
 
+/** The 21 names WebuiTokenName must be exactly: the 15 neutrals plus 6 state colours. */
+const THEME_TOKENS = [
+  '--bg',
+  '--bg-panel',
+  '--bg-subtle',
+  '--bg-hover',
+  '--bg-selected',
+  '--border',
+  '--text',
+  '--text-muted',
+  '--text-dim',
+  '--accent',
+  '--accent-hover',
+  '--accent-contrast',
+  '--state-error-fg',
+  '--state-error-bg',
+  '--state-warning-fg',
+  '--state-warning-bg',
+  '--state-success-fg',
+  '--state-success-bg',
+  '--font-ui',
+  '--font-mono',
+  '--content-font-size',
+] as const
+
+/** Each of the 21 is assignable, nothing else is, and a misleading state name is rejected. */
+const tokensExact = [
+  tokenSnippet(THEME_TOKENS),
+  `export const dangerRejected: ('--state-danger-fg' extends WebuiTokenName ? false : true) = true`,
+].join('\n')
+
 /** Types a session-block plugin declares with `import type` from the contract, and nothing else. */
 const sessionContract = [
   `import type { ComponentType } from 'react'`,
@@ -111,6 +142,7 @@ const SNIPPETS: Record<string, string> = {
   badScope: fixture('ok.fixture.txt').replace("scope: 'root'", "scope: 'global'"),
   valueImport: fixture('value-import.fixture.txt'),
   tokens: tokenSnippet(cssTokens()),
+  tokensExact,
   sessionContract,
   closedOpenState,
   sessionOnSession: registerCall(blockLiteral('session'), 'sessionView'),
@@ -178,8 +210,12 @@ describe('type-only contract', () => {
   }, 60_000)
 
   it('A3 WebuiTokenName has exactly the custom properties the tokens.css body defines', () => {
-    expect(cssTokens()).toHaveLength(15)
     expect(describeAll(diagnostics.tokens ?? [])).toEqual([])
+    expect(cssTokens()).toHaveLength(21)
+  }, 60_000)
+
+  it('A3 WebuiTokenName is exactly the 21 token names and rejects a misleading state name', () => {
+    expect(describeAll(diagnostics.tokensExact ?? [])).toEqual([])
   }, 60_000)
 
   it('A1 a type-only snippet uses WebuiSessionState, WebuiSession, SessionBlockProps, RootBlockMeta, SessionBlockMeta and BlockComponentOf', () => {
