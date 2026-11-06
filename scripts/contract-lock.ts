@@ -66,6 +66,7 @@ function readLock(root: string): ContractLock | undefined {
 
 /**
  * Compare the contract against its lock, and `WEBUI_CONTRACT_VERSION` against the package version and the lock.
+ * Previous-version usage is compiled separately by `compilePreviousFixtures` in `scripts/contract-compat.ts`.
  * @param root - the package root holding `package.json`, `CHANGELOG.md` and `contract/`.
  * @returns every problem found; an empty array means contract, lock, version and CHANGELOG agree.
  * `contract-version-mismatch` means the declared contract version disagrees with the package or the lock.
