@@ -92,12 +92,25 @@ describe('npm run gate 是门禁唯一定义', () => {
   })
 })
 
+interface AlphaJob {
+  needs?: string | string[]
+  outputs?: Record<string, unknown>
+  strategy?: { matrix?: Record<string, unknown> }
+  steps: Step[]
+}
+
 interface AlphaWorkflow {
   on: {
     schedule?: { cron?: string }[]
     workflow_dispatch?: { inputs?: Record<string, { required?: boolean }> }
   }
-  jobs: Record<string, { steps: Step[] }>
+  jobs: Record<string, AlphaJob>
+}
+
+const needsOf = (needs: AlphaJob['needs']): string[] => {
+  if (typeof needs === 'string') return [needs]
+  if (Array.isArray(needs)) return needs
+  return []
 }
 
 /** Read lazily, so a missing workflow fails its own tests instead of the whole file. */
@@ -111,15 +124,17 @@ const loadAlpha = () => {
 }
 
 describe('dsh-alpha 工作流', () => {
-  it('A5 runs weekly on schedule and can be dispatched with an optional version input', () => {
+  it('A5 runs daily on schedule and can be dispatched with an optional version input', () => {
     const { alpha } = loadAlpha()
-    expect(alpha.on.schedule?.[0]?.cron).toBe('0 3 * * 1')
+    expect(alpha.on.schedule?.map((entry) => entry.cron)).toEqual(['0 3 * * *'])
     const version = alpha.on.workflow_dispatch?.inputs?.version
     expect(version).toBeDefined()
     expect(version?.required ?? false).toBe(false)
   })
 
-  it('A4 A5 steps run bump, install, gate, host-compat, then push and report in that order', () => {
+  // Guard id is this exact title. It cannot also match the A<n> title prefix.
+  // eslint-disable-next-line no-restricted-syntax
+  it('A4:A5 steps run bump, install, gate, host-compat, then push and report in that order', () => {
     const { indexOf } = loadAlpha()
     const bump = indexOf('scripts/dsh-bump.ts')
     const install = indexOf('npm install')
@@ -182,5 +197,51 @@ describe('dsh-alpha 工作流', () => {
     expect(after.length).toBeGreaterThan(0)
     expect(after.filter((step) => !(step.if ?? '').includes(`steps.${id}.outputs.changed`))).toEqual([])
     expect(text).toContain('没有新版本')
+  })
+
+  it('A3 schedule is daily, a plan job feeds a version matrix, and dispatch version still works', () => {
+    const { text, alpha } = loadAlpha()
+    expect(alpha.on.schedule?.map((entry) => entry.cron)).toEqual(['0 3 * * *'])
+    const version = alpha.on.workflow_dispatch?.inputs?.version
+    expect(version).toBeDefined()
+    expect(version?.required ?? false).toBe(false)
+
+    const plan = alpha.jobs.plan
+    expect(plan).toBeDefined()
+    expect(plan?.steps.some((step) => (step.run ?? '').includes('scripts/dsh-checked.ts'))).toBe(true)
+    expect(JSON.stringify(plan)).toContain('github.event.inputs.version')
+    expect(JSON.stringify(plan?.outputs)).toContain('versions')
+
+    const matrixJobs = Object.entries(alpha.jobs).filter(([, job]) => job.strategy?.matrix !== undefined)
+    expect(matrixJobs).toHaveLength(1)
+    const matrix = matrixJobs[0]?.[1]
+    expect(needsOf(matrix?.needs)).toContain('plan')
+    expect(JSON.stringify(matrix?.strategy)).toContain('needs.plan.outputs.versions')
+    expect(text).toContain('needs.plan.outputs.versions')
+
+    const steps = matrix?.steps ?? []
+    const indexOf = (...needles: string[]) =>
+      steps.findIndex((step) => needles.every((needle) => (step.run ?? '').includes(needle)))
+    const bump = indexOf('scripts/dsh-bump.ts')
+    const install = indexOf('npm install')
+    const gate = indexOf('npm run gate')
+    const compat = indexOf('scripts/host-compat.ts')
+    const push = indexOf('git', 'push', 'dsh-alpha/')
+    const report = indexOf('scripts/dsh-report.ts')
+    for (const index of [bump, install, gate, compat, push, report]) expect(index).toBeGreaterThanOrEqual(0)
+    expect(bump).toBeLessThan(install)
+    expect(install).toBeLessThan(gate)
+    expect(gate).toBeLessThan(compat)
+    expect(compat).toBeLessThan(push)
+    expect(push).toBeLessThanOrEqual(report)
+
+    const bumpStep = steps[bump]
+    expect(JSON.stringify(bumpStep)).toContain('matrix.version')
+    expect(JSON.stringify(bumpStep)).not.toContain('github.event.inputs.version')
+    const id = bumpStep?.id
+    expect(id).toBeTruthy()
+    const after = steps.slice(bump + 1)
+    expect(after.length).toBeGreaterThan(0)
+    expect(after.filter((step) => !(step.if ?? '').includes(`steps.${id}.outputs.changed`))).toEqual([])
   })
 })
