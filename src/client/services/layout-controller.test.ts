@@ -1397,3 +1397,62 @@ describe('LayoutController undo / redo', () => {
     expect(tabsOf(controller.getSnapshot())).toEqual(['a'])
   })
 })
+
+describe('LayoutController open placement', () => {
+  /** Runs the call and checks it was rejected for the reason with the layout untouched and nobody told. */
+  function expectRejected(controller: LayoutController, call: () => unknown, reason: LayoutActionRejection) {
+    const listener = vi.fn()
+    const onAction = vi.fn()
+    controller.subscribe(listener)
+    controller.onAction(onAction)
+    const before = controller.getSnapshot()
+
+    expect(call()).toEqual({ ok: false, reason })
+
+    expect(controller.getSnapshot()).toBe(before)
+    expect(listener).not.toHaveBeenCalled()
+    expect(onAction).not.toHaveBeenCalled()
+  }
+
+  it('A3 open beside an unregistered block is rejected as unknown-block and the layout stays', async () => {
+    const { controller } = await setup([meta('a'), meta('b')], [presetOf('p', 0, pane(0, ['a']))])
+
+    expectRejected(
+      controller,
+      () => controller.actions.open({ blockId: 'b' }, { beside: { blockId: 'ghost' }, side: 'left' }),
+      'unknown-block',
+    )
+  })
+
+  it('A3 open beside a registered block that is not open is rejected as no-such-tab and the layout stays', async () => {
+    const { controller } = await setup([meta('a'), meta('b')])
+
+    expectRejected(
+      controller,
+      () => controller.actions.open({ blockId: 'b' }, { beside: { blockId: 'a' }, side: 'bottom' }),
+      'no-such-tab',
+    )
+  })
+
+  it('A4 an open with a placement is one user action: onAction hears the new layout and undo restores the old one', async () => {
+    const { controller } = await setup([meta('a'), meta('b')], [presetOf('p', 0, pane(0, ['a']))])
+    const onAction = vi.fn<(layout: WebuiLayout) => void>()
+    controller.onAction(onAction)
+    const before = controller.getSnapshot().layout
+
+    expect(controller.actions.open({ blockId: 'b' }, { beside: { blockId: 'a' }, side: 'right' })).toEqual({ ok: true })
+
+    const after = controller.getSnapshot().layout
+    expect(after).toEqual({
+      version: 1,
+      root: row([pane(0, ['a']), pane(0, ['b'])], [FR, FR]),
+      activePane: [1],
+    })
+    expect(after).not.toEqual(before)
+    expect(onAction).toHaveBeenCalledTimes(1)
+    expect(onAction.mock.calls[0]?.[0]).toBe(after)
+
+    expect(controller.actions.undo()).toEqual({ ok: true })
+    expect(controller.getSnapshot().layout).toEqual(before)
+  })
+})

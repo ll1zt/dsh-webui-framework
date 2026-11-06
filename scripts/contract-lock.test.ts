@@ -72,38 +72,59 @@ afterEach(() => {
 })
 
 describe('checkContractLock on the repository', () => {
-  it('A1 A4 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.3.1 and the contract hash', () => {
+  it('A1 A4 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.3.3 and the contract hash', () => {
     expect(checkContractLock(ROOT)).toEqual([])
 
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
-    expect(manifest.version).toBe('0.3.1')
+    expect(manifest.version).toBe('0.3.3')
     const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
       version: string
       packages: { '': { version: string } }
     }
-    expect(lockfile.version).toBe('0.3.1')
-    expect(lockfile.packages[''].version).toBe('0.3.1')
+    expect(lockfile.version).toBe('0.3.3')
+    expect(lockfile.packages[''].version).toBe('0.3.3')
     expect(read(join(ROOT, 'CHANGELOG.md'))).toMatch(/^## 0\.3\.1\b/m)
     expect(JSON.parse(read(join(ROOT, 'contract/lock.json')))).toEqual({
-      version: '0.3.1',
+      version: '0.3.3',
       sha256: contractHash(ROOT),
     })
   })
 
-  it('A5 package.json, package-lock.json and contract/lock.json are 0.3.1 and CHANGELOG calls the change additive and compatible', () => {
+  it('A5 package.json, package-lock.json and contract/lock.json are 0.3.3 and CHANGELOG calls the change additive and compatible', () => {
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
-    expect(manifest.version).toBe('0.3.1')
+    expect(manifest.version).toBe('0.3.3')
     const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
       version: string
       packages: { '': { version: string } }
     }
-    expect(lockfile.version).toBe('0.3.1')
-    expect(lockfile.packages[''].version).toBe('0.3.1')
+    expect(lockfile.version).toBe('0.3.3')
+    expect(lockfile.packages[''].version).toBe('0.3.3')
     const contractLock = JSON.parse(read(join(ROOT, 'contract/lock.json'))) as { version: string }
-    expect(contractLock.version).toBe('0.3.1')
+    expect(contractLock.version).toBe('0.3.3')
 
-    const section = changelogSection(read(join(ROOT, 'CHANGELOG.md')), '0.3.1')
-    expect(section, '## 0.3.1 heading').toBeDefined()
+    const section = changelogSection(read(join(ROOT, 'CHANGELOG.md')), '0.3.3')
+    expect(section, '## 0.3.3 heading').toBeDefined()
+    const text = section ?? ''
+    // "incompatible" is not the word "compatible"; a negated phrase is not either.
+    expect(text).toMatch(/\badditive\b/i)
+    expect(text).toMatch(/\bcompatible\b/i)
+    expect(text).not.toMatch(/\bnot\b(?:[\s-]+[\w-]+){0,5}[\s-]+compatible\b/i)
+  })
+
+  it('A6 package.json, package-lock.json and contract/lock.json are 0.3.3 and CHANGELOG calls the change additive and compatible', () => {
+    const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
+    expect(manifest.version).toBe('0.3.3')
+    const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
+      version: string
+      packages: { '': { version: string } }
+    }
+    expect(lockfile.version).toBe('0.3.3')
+    expect(lockfile.packages[''].version).toBe('0.3.3')
+    const contractLock = JSON.parse(read(join(ROOT, 'contract/lock.json'))) as { version: string }
+    expect(contractLock.version).toBe('0.3.3')
+
+    const section = changelogSection(read(join(ROOT, 'CHANGELOG.md')), '0.3.3')
+    expect(section, '## 0.3.3 heading').toBeDefined()
     const text = section ?? ''
     // "incompatible" is not the word "compatible"; a negated phrase is not either.
     expect(text).toMatch(/\badditive\b/i)
