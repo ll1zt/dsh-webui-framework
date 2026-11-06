@@ -2,6 +2,12 @@
 
 Every change to `contract/index.d.ts` needs a new version here, a matching `version` in `package.json` and a refreshed `contract/lock.json` (`node scripts/contract-lock.ts --write`).
 
+## 0.3.1
+
+This is an additive, backwards compatible change that adds `--state-error-fg`, `--state-error-bg`, `--state-warning-fg`, `--state-warning-bg`, `--state-success-fg` and `--state-success-bg` to `WebuiTokenName`. Content packs can use these state colours for error, warning and success hints without picking colours, and the colours follow the host theme.
+
+- The six tokens alias the host `--dsw-alias-state-*` ramps (error, warn and success; primary for foreground, tertiary for background) instead of fixed colours.
+
 ## 0.3.0
 
 This is an incompatible change. `BlockMeta` is now a union discriminated by `scope`, and `registerBlock`'s component type follows that scope, so a registration that compiled against 0.2.0 can fail to compile. The contract changed in the following ways.
