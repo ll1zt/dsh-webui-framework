@@ -1,9 +1,12 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type { Context } from '@deepseek-ai/cordis'
 import ts from 'typescript'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
 import { parse } from 'yaml'
+
+vi.mock('@deepseek-ai/dsh-client-ui-primitives', () => ({ Modal: () => null }))
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const EXAMPLE = join(ROOT, 'examples/hello-block')
@@ -120,5 +123,78 @@ describe('hello-block example as a profile layer', () => {
   it('A3 patch inserts exactly one row for hello-block', () => {
     const patch: unknown = parse(readFileSync(join(EXAMPLE, 'cordis.patch.yml'), 'utf8'))
     expect(patch).toEqual([{ insert: [{ id: 'hello-block', name: '@lllzt/dsh-webui-hello-block' }] }])
+  })
+})
+
+const BLOCKS = ['hello.root', 'hello.note', 'hello.session', 'hello.boom']
+const PRESETS = ['hello.preset']
+
+/** Runs apply against a stub whose contractVersion is `version`, recording what it registers. */
+const capture = (version: string, apply: (ctx: Context) => void): { blocks: string[]; presets: string[] } => {
+  const blocks: string[] = []
+  const presets: string[] = []
+  const layout = {
+    contractVersion: version,
+    registerBlock: (meta: { id: string }) => {
+      blocks.push(meta.id)
+      return () => {}
+    },
+    registerPreset: (preset: { id: string }) => {
+      presets.push(preset.id)
+      return () => {}
+    },
+  }
+  const fakeCtx = {
+    webuiLayout: layout,
+    inject: (_keys: readonly string[], callback: (ctx: { webuiLayout: typeof layout }) => unknown) => {
+      callback(fakeCtx)
+    },
+  }
+  apply(fakeCtx as unknown as Context)
+  return { blocks, presets }
+}
+
+const warningsDuring = (run: () => void): number => {
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    run()
+    return warn.mock.calls.length
+  } finally {
+    warn.mockRestore()
+  }
+}
+
+describe('hello-block contract version', () => {
+  it('A3 warns once and registers nothing when the minor differs, and registers every block and preset when the version matches', async () => {
+    const { apply, COMPILED_AGAINST } = await import('../examples/hello-block/src/client.tsx')
+    const packageVersion = (JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as { version: string }).version
+    expect(COMPILED_AGAINST).toBe('0.3.4')
+    expect(packageVersion).toBe('0.3.4')
+
+    const run = (version: string): { blocks: string[]; presets: string[]; warnings: number } => {
+      let found = { blocks: [] as string[], presets: [] as string[] }
+      const warnings = warningsDuring(() => {
+        found = capture(version, apply)
+      })
+      return { ...found, warnings }
+    }
+
+    const matched = run(COMPILED_AGAINST)
+    expect(matched.warnings).toBe(0)
+    expect(matched.blocks).toEqual(BLOCKS)
+    expect(matched.presets).toEqual(PRESETS)
+
+    // 0.x: a different patch of the same minor stays compatible.
+    const patched = run('0.3.5')
+    expect(patched.warnings).toBe(0)
+    expect(patched.blocks).toEqual(BLOCKS)
+    expect(patched.presets).toEqual(PRESETS)
+
+    for (const version of ['0.4.0', '1.0.0']) {
+      const found = run(version)
+      expect(found.warnings, version).toBe(1)
+      expect(found.blocks, version).toEqual([])
+      expect(found.presets, version).toEqual([])
+    }
   })
 })

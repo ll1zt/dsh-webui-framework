@@ -1,16 +1,23 @@
 import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Context } from '@deepseek-ai/cordis'
+import ts from 'typescript'
 import { afterEach, describe, expect, it } from 'vitest'
+import type { WebuiLayoutService } from '@lllzt/dsh-webui-framework/contract'
+import { BlockRegistry, WebuiLayout } from '../src/client/services/block-registry.ts'
 import { checkContractLock } from './contract-lock.ts'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const CLI = join(ROOT, 'scripts/contract-lock.ts')
 
 const INPUTS = ['package.json', 'CHANGELOG.md', 'contract/index.d.ts', 'contract/lock.json'] as const
+const VERSION_MODULE = 'src/lib/contract-version.ts'
+const CANNOT_FIND_MODULE = 2307
+const READONLY_ASSIGNMENT = 2540
 
 const read = (path: string): string => readFileSync(path, 'utf8')
 
@@ -42,6 +49,33 @@ const makeCopy = (): string => {
   return dir
 }
 
+/** Compile one virtual snippet with the repo tsconfig, the same way scripts/contract.test.ts does. */
+const compileSnippet = (text: string): ts.Diagnostic[] => {
+  const config = ts.readConfigFile(join(ROOT, 'tsconfig.json'), ts.sys.readFile)
+  const { options } = ts.parseJsonConfigFileContent(config.config, ts.sys, ROOT)
+  const file = join(ROOT, 'scripts/fixtures/contract/__virtual__/contract-version.ts')
+  const virtual = new Map([[file, text]])
+  const host = ts.createCompilerHost(options)
+  const { fileExists, readFile, getSourceFile } = host
+  host.fileExists = (path) => virtual.has(path) || fileExists(path)
+  host.readFile = (path) => virtual.get(path) ?? readFile(path)
+  host.getSourceFile = (path, languageVersion, ...rest) => {
+    const sourceText = virtual.get(path)
+    return sourceText === undefined
+      ? getSourceFile(path, languageVersion, ...rest)
+      : ts.createSourceFile(path, sourceText, languageVersion)
+  }
+  const program = ts.createProgram([file], options, host)
+  const source = program.getSourceFile(file)
+  if (source === undefined) throw new Error('the contract version snippet was not compiled')
+  return [...program.getSyntacticDiagnostics(source), ...program.getSemanticDiagnostics(source)]
+}
+
+const diagnosticLine = (diagnostic: ts.Diagnostic): number =>
+  diagnostic.file !== undefined && diagnostic.start !== undefined
+    ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line
+    : -1
+
 const edit = (dir: string, input: (typeof INPUTS)[number], change: (text: string) => string): void => {
   const path = join(dir, input)
   writeFileSync(path, change(read(path)))
@@ -72,64 +106,100 @@ afterEach(() => {
 })
 
 describe('checkContractLock on the repository', () => {
-  it('A1 A4 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.3.3 and the contract hash', () => {
+  it('A1 A4 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.3.4 and the contract hash', () => {
     expect(checkContractLock(ROOT)).toEqual([])
 
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
-    expect(manifest.version).toBe('0.3.3')
+    expect(manifest.version).toBe('0.3.4')
     const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
       version: string
       packages: { '': { version: string } }
     }
-    expect(lockfile.version).toBe('0.3.3')
-    expect(lockfile.packages[''].version).toBe('0.3.3')
+    expect(lockfile.version).toBe('0.3.4')
+    expect(lockfile.packages[''].version).toBe('0.3.4')
     expect(read(join(ROOT, 'CHANGELOG.md'))).toMatch(/^## 0\.3\.1\b/m)
     expect(JSON.parse(read(join(ROOT, 'contract/lock.json')))).toEqual({
-      version: '0.3.3',
+      version: '0.3.4',
       sha256: contractHash(ROOT),
     })
   })
 
-  it('A5 package.json, package-lock.json and contract/lock.json are 0.3.3 and CHANGELOG calls the change additive and compatible', () => {
+  it('A5 package.json, package-lock.json and contract/lock.json are 0.3.4 and CHANGELOG calls the change additive and compatible', () => {
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
-    expect(manifest.version).toBe('0.3.3')
+    expect(manifest.version).toBe('0.3.4')
     const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
       version: string
       packages: { '': { version: string } }
     }
-    expect(lockfile.version).toBe('0.3.3')
-    expect(lockfile.packages[''].version).toBe('0.3.3')
+    expect(lockfile.version).toBe('0.3.4')
+    expect(lockfile.packages[''].version).toBe('0.3.4')
     const contractLock = JSON.parse(read(join(ROOT, 'contract/lock.json'))) as { version: string }
-    expect(contractLock.version).toBe('0.3.3')
+    expect(contractLock.version).toBe('0.3.4')
 
-    const section = changelogSection(read(join(ROOT, 'CHANGELOG.md')), '0.3.3')
-    expect(section, '## 0.3.3 heading').toBeDefined()
+    const section = changelogSection(read(join(ROOT, 'CHANGELOG.md')), '0.3.4')
+    expect(section, '## 0.3.4 heading').toBeDefined()
     const text = section ?? ''
     // "incompatible" is not the word "compatible"; a negated phrase is not either.
     expect(text).toMatch(/\badditive\b/i)
     expect(text).toMatch(/\bcompatible\b/i)
     expect(text).not.toMatch(/\bnot\b(?:[\s-]+[\w-]+){0,5}[\s-]+compatible\b/i)
   })
+})
 
-  it('A6 package.json, package-lock.json and contract/lock.json are 0.3.3 and CHANGELOG calls the change additive and compatible', () => {
+describe('contract version', () => {
+  it('A2 ctx.webuiLayout.contractVersion is a readonly string', () => {
+    const lines = [
+      `import type { Context } from '@deepseek-ai/cordis'`,
+      `import type { WebuiLayoutService } from '@lllzt/dsh-webui-framework/contract'`,
+      `declare const ctx: Context`,
+      `const version: string = ctx.webuiLayout.contractVersion`,
+      `const service: WebuiLayoutService = ctx.webuiLayout`,
+      `void version`,
+      `void service`,
+      `ctx.webuiLayout.contractVersion = '1.0.0'`,
+    ]
+    const assignLine = lines.findIndex((line) => line.includes(`= '1.0.0'`))
+    const diagnostics = compileSnippet(lines.join('\n'))
+    const describeOne = (diagnostic: ts.Diagnostic): string =>
+      `L${diagnosticLine(diagnostic) + 1} TS${diagnostic.code}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')}`
+    const elsewhere = diagnostics.filter((diagnostic) => diagnosticLine(diagnostic) !== assignLine)
+    expect(diagnostics.map((diagnostic) => diagnostic.code)).not.toContain(CANNOT_FIND_MODULE)
+    expect(elsewhere.map(describeOne)).toEqual([])
+    expect(diagnostics.map((diagnostic) => diagnostic.code)).toContain(READONLY_ASSIGNMENT)
+  }, 60_000)
+
+  it('A2 ctx.webuiLayout.contractVersion equals the package version', () => {
+    const ctx = new Context()
+    const layout = new WebuiLayout(ctx, new BlockRegistry())
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
-    expect(manifest.version).toBe('0.3.3')
-    const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
-      version: string
-      packages: { '': { version: string } }
-    }
-    expect(lockfile.version).toBe('0.3.3')
-    expect(lockfile.packages[''].version).toBe('0.3.3')
-    const contractLock = JSON.parse(read(join(ROOT, 'contract/lock.json'))) as { version: string }
-    expect(contractLock.version).toBe('0.3.3')
+    const service: WebuiLayoutService = ctx.webuiLayout
+    expect(layout.contractVersion).toBe(manifest.version)
+    expect(service.contractVersion).toBe(manifest.version)
+    expect(manifest.version).toBe('0.3.4')
+  })
 
-    const section = changelogSection(read(join(ROOT, 'CHANGELOG.md')), '0.3.3')
-    expect(section, '## 0.3.3 heading').toBeDefined()
-    const text = section ?? ''
-    // "incompatible" is not the word "compatible"; a negated phrase is not either.
-    expect(text).toMatch(/\badditive\b/i)
-    expect(text).toMatch(/\bcompatible\b/i)
-    expect(text).not.toMatch(/\bnot\b(?:[\s-]+[\w-]+){0,5}[\s-]+compatible\b/i)
+  it('A2 WEBUI_CONTRACT_VERSION equals package.json and contract/lock.json', async () => {
+    const { WEBUI_CONTRACT_VERSION } = await import('../src/lib/contract-version.ts')
+    const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
+    const contractLock = JSON.parse(read(join(ROOT, 'contract/lock.json'))) as { version: string }
+    expect(WEBUI_CONTRACT_VERSION).toBe('0.3.4')
+    expect(WEBUI_CONTRACT_VERSION).toBe(manifest.version)
+    expect(WEBUI_CONTRACT_VERSION).toBe(contractLock.version)
+  })
+
+  it('A2 reports contract-version-mismatch when the contract version module disagrees with the package version', () => {
+    const dir = makeCopy()
+    const versionPath = join(dir, VERSION_MODULE)
+    expect(existsSync(join(ROOT, VERSION_MODULE))).toBe(true)
+    mkdirSync(dirname(versionPath), { recursive: true })
+    copyFileSync(join(ROOT, VERSION_MODULE), versionPath)
+    const current = (JSON.parse(read(join(dir, 'package.json'))) as { version: string }).version
+    const before = read(versionPath)
+    expect(before).toContain(current)
+    const edited = before.replaceAll(current, '9.9.9')
+    expect(edited).not.toContain(current)
+    writeFileSync(versionPath, edited)
+    expect(checkContractLock(dir)).toEqual(['contract-version-mismatch'])
   })
 })
 
