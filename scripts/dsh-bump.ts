@@ -1,16 +1,20 @@
 import { execFile } from 'node:child_process'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { isInvokedAsScript, messageOf } from './cli-utils.ts'
+import { pruneDshEntries } from './dsh-relock.ts'
+import type { PackageLock } from './dsh-relock.ts'
 
 /**
  * Moves package.json to a dsh release: every `@deepseek-ai/dsh-*` dependency to that version,
  * and cordis / schemastery to the versions the release's own dependency ranges resolve to.
  *
- *   node scripts/dsh-bump.ts [--version <v>]
+ *   node scripts/dsh-bump.ts [--version <v>] [--write]
  *
  * Without `--version` the `alpha` dist-tag of `@deepseek-ai/dsh` is used. Prints one JSON line
- * `{"current":…,"target":…,"changed":…}` and rewrites package.json only when `changed`.
+ * `{"current":…,"target":…,"changed":…,"relocked":…}`. Files are written only with `--write`:
+ * package.json when `changed`, then package-lock.json when it still has `@deepseek-ai/*` entries.
+ * `relocked` is true only when that lockfile was pruned on disk.
  * Exit 1 when the target cannot be resolved or the arguments are wrong.
  */
 
@@ -171,25 +175,63 @@ export function npmRegistry(): DshRegistry {
   }
 }
 
-const USAGE = 'usage: node scripts/dsh-bump.ts [--version <v>]'
+const USAGE = 'usage: node scripts/dsh-bump.ts [--version <v>] [--write]'
 
-async function runCli(root: string, args: string[]): Promise<number> {
+interface ParsedArgs {
+  version: string | undefined
+  write: boolean
+}
+
+/** `--version <v>` and `--write`, in either order. `undefined` means the arguments are wrong. */
+function parseArgs(args: readonly string[]): ParsedArgs | undefined {
   let version: string | undefined
-  if (args.length > 0) {
-    const value = args[1]
-    if (args[0] !== '--version' || args.length !== 2 || value === undefined || value === '' || value.startsWith('-')) {
-      console.error(USAGE)
-      return 1
+  let write = false
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]
+    if (arg === '--write') {
+      write = true
+      continue
     }
-    version = value
+    if (arg === '--version') {
+      const value = args[index + 1]
+      if (value === undefined || value === '' || value.startsWith('-')) return undefined
+      version = value
+      index += 1
+      continue
+    }
+    return undefined
+  }
+  return { version, write }
+}
+
+/** Drop `@deepseek-ai/*` entries from package-lock.json. True only when at least one was removed. */
+function pruneLockfile(root: string): boolean {
+  const path = join(root, 'package-lock.json')
+  if (!existsSync(path)) return false
+  const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    throw new Error('package-lock.json is not an object')
+  }
+  const result = pruneDshEntries(parsed as PackageLock)
+  if (result.pruned === 0) return false
+  writeFileSync(path, `${JSON.stringify(result.lock, null, 2)}\n`)
+  return true
+}
+
+async function runCli(root: string, args: readonly string[]): Promise<number> {
+  const parsed = parseArgs(args)
+  if (parsed === undefined) {
+    console.error(USAGE)
+    return 1
   }
   try {
     const file = join(root, 'package.json')
     const manifest = JSON.parse(readFileSync(file, 'utf8')) as PackageManifest
-    const target = await resolveTarget(version, npmRegistry())
+    const target = await resolveTarget(parsed.version, npmRegistry())
     const { manifest: bumped, changed } = bumpManifest(manifest, target)
-    if (changed) writeFileSync(file, JSON.stringify(bumped, null, 2) + '\n')
-    console.log(JSON.stringify({ current: currentVersion(manifest), target: target.dsh, changed }))
+    if (parsed.write && changed) writeFileSync(file, `${JSON.stringify(bumped, null, 2)}\n`)
+    const relocked = parsed.write ? pruneLockfile(root) : false
+    console.log(JSON.stringify({ current: currentVersion(manifest), target: target.dsh, changed, relocked }))
     return 0
   } catch (error) {
     console.error(`dsh-bump: ${messageOf(error)}`)
