@@ -1,7 +1,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { basename, dirname, join, relative } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { isInvokedAsScript, messageOf } from './cli-utils.ts'
 import { hostRowIds } from './host-compat.ts'
+import { readUnverified, unverifiedSection } from './unverified.ts'
+import type { Unverified } from './unverified.ts'
 
 /**
  * Text diff of the host packages this repo imports, plus the host assembly table.
@@ -12,6 +15,9 @@ import { hostRowIds } from './host-compat.ts'
  * Prints a Markdown fragment: one bullet per entry (`无变化` when the `.d.ts` texts match, otherwise
  * the repo files that import it, or `framework-wide` when the entry has no single file), then the
  * added and removed row ids of `@deepseek-ai/dsh-web-app/cordis.patch.yml`.
+ * As a script, also appends the spike conclusions no test locks (`manual` only).
+ * `renderDiff` adds that section only when a non-empty list is passed, so callers
+ * that omit it keep the previous text byte for byte.
  */
 
 export interface EntryDiff {
@@ -129,8 +135,23 @@ export function compareHost(baseRoot: string, nextRoot: string): HostDiffReport 
   }
 }
 
-/** One bullet per entry, then the assembly-table ids that appeared or disappeared. */
-export function renderDiff(report: HostDiffReport): string {
+const SPIKE = join(dirname(fileURLToPath(import.meta.url)), '../docs/spikes/session-adapter.md')
+
+/** Spike conclusions no test locks. A missing spike leaves the report without that section. */
+function manualUnverified(): readonly Unverified[] {
+  if (!existsSync(SPIKE)) return []
+  return readUnverified(readFileSync(SPIKE, 'utf8')).filter((item) => item.check === 'manual')
+}
+
+/**
+ * One bullet per entry, then the assembly-table ids that appeared or disappeared.
+ * A non-empty `unverified` list adds `## 未验证的结论`. An omitted or empty list does not,
+ * so the two-section report stays byte-identical.
+ * @param report - entry and patch comparison.
+ * @param unverified - conclusions to list. Omitted or empty means do not mention them.
+ * @returns the markdown fragment, ending in a newline.
+ */
+export function renderDiff(report: HostDiffReport, unverified?: readonly Unverified[]): string {
   const lines = ['## 宿主差异', '']
   for (const item of report.entries) {
     const wide = item.files.length === 0 ? '（framework-wide）' : ''
@@ -155,7 +176,9 @@ export function renderDiff(report: HostDiffReport): string {
     }
     if (report.patchAdded.length === 0 && report.patchRemoved.length === 0) lines.push('装配表行序有变化。')
   }
-  return `${lines.join('\n')}\n`
+  const text = `${lines.join('\n')}\n`
+  if (unverified === undefined || unverified.length === 0) return text
+  return `${text}## 未验证的结论\n\n${unverifiedSection(unverified)}`
 }
 
 /** A `node_modules` directory compares as its parent tree; anything else is already a tree root. */
@@ -181,7 +204,7 @@ function runCli(args: readonly string[]): number {
     return 2
   }
   try {
-    process.stdout.write(renderDiff(compareHost(rootOf(base), rootOf(next))))
+    process.stdout.write(renderDiff(compareHost(rootOf(base), rootOf(next)), manualUnverified()))
     return 0
   } catch (error) {
     console.error(`host-diff: ${messageOf(error)}`)
