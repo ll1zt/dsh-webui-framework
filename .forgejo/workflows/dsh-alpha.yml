@@ -116,6 +116,12 @@ jobs:
           test -n "$CI_TOKEN"
           ! grep -qF "$CI_TOKEN" source/.git/config
 
+      - name: Baseline tree
+        working-directory: source
+        run: |
+          set -eu
+          nix develop . --no-write-lock-file --command bash -c 'mkdir -p .host-diff-before && cp package.json package-lock.json .host-diff-before/ && npm ci --prefix .host-diff-before --ignore-scripts || { echo "基线取不到" > .host-diff-baseline-failed; true; }'
+
       - name: Bump
         id: bump
         working-directory: source
@@ -143,6 +149,17 @@ jobs:
         run: |
           set -eu
           nix develop . --no-write-lock-file --command bash -c 'npm install --include=dev --ignore-scripts > npm-install.log 2>&1'
+
+      - name: host-diff
+        if: steps.bump.outputs.changed == 'true'
+        working-directory: source
+        run: |
+          set -eu
+          if [ -f .host-diff-baseline-failed ] || [ ! -d .host-diff-before/node_modules ]; then
+            printf '%s\n' '基线取不到：未能按旧 lockfile 装出基线树，无法比较宿主类型与装配表。' > host-diff.md
+          else
+            nix develop . --no-write-lock-file --command bash -c 'node scripts/host-diff.ts --base .host-diff-before/node_modules --next node_modules > host-diff.md'
+          fi
 
       - name: gate
         id: gate
@@ -195,7 +212,11 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: |
           set -eu
-          nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-report.ts --pass "$DSH_VERSION"'
+          export DSH_REPORT=
+          if [ -f host-diff.md ]; then
+            DSH_REPORT=host-diff.md
+          fi
+          nix develop . --no-write-lock-file --command bash -c 'if [ -n "$DSH_REPORT" ]; then node scripts/dsh-report.ts --pass "$DSH_VERSION" --report "$DSH_REPORT"; else node scripts/dsh-report.ts --pass "$DSH_VERSION"; fi'
 
       - name: Report failure
         if: failure() && steps.bump.outputs.changed == 'true' && (steps.install.outcome == 'failure' || steps.gate.outcome == 'failure' || steps.compat.outcome == 'failure')
@@ -217,8 +238,12 @@ jobs:
           else
             export DSH_FAILED_STEP=host-compat
           fi
+          export DSH_NPM_LOG=
           if [ "$DSH_FAILED_STEP" = install ] && [ -f npm-install.log ]; then
-            nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-report.ts --fail "$DSH_FAILED_STEP" "$DSH_VERSION" "$RUN_URL" --npm-log npm-install.log'
-          else
-            nix develop . --no-write-lock-file --command bash -c 'node scripts/dsh-report.ts --fail "$DSH_FAILED_STEP" "$DSH_VERSION" "$RUN_URL"'
+            DSH_NPM_LOG=npm-install.log
           fi
+          export DSH_REPORT=
+          if [ -f host-diff.md ]; then
+            DSH_REPORT=host-diff.md
+          fi
+          nix develop . --no-write-lock-file --command bash -c 'set -eu; args=(node scripts/dsh-report.ts --fail "$DSH_FAILED_STEP" "$DSH_VERSION" "$RUN_URL"); if [ -n "$DSH_NPM_LOG" ]; then args+=(--npm-log "$DSH_NPM_LOG"); fi; if [ -n "$DSH_REPORT" ]; then args+=(--report "$DSH_REPORT"); fi; "${args[@]}"'

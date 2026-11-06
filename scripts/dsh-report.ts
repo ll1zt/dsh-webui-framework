@@ -6,24 +6,26 @@ import { summarizeNpmError } from './npm-summary.ts'
  * Reports the result of a dsh-alpha run to Forgejo: a failure opens (or comments on) the issue
  * for that dsh version, a pass opens the upgrade PR from the branch the workflow pushed.
  *
- *   node scripts/dsh-report.ts --pass <version>
- *   node scripts/dsh-report.ts --fail <install|gate|host-compat> <version> <run-url> [--npm-log <path>]
+ *   node scripts/dsh-report.ts --pass <version> [--report <path>]
+ *   node scripts/dsh-report.ts --fail <install|gate|host-compat> <version> <run-url> [--npm-log <path>] [--report <path>]
  *
  * `--npm-log` is the install step's npm output. On an install failure its conflict summary is
- * appended to the issue; the raw log (and anything token-like in it) is not. The forge comes from
- * GITHUB_SERVER_URL and GITHUB_REPOSITORY; the token from DSH_ALPHA_TOKEN, else GITHUB_TOKEN.
- * The token only goes into the Authorization header; it is never printed and never part of an
- * error message. Prints one JSON line `{"action":…,"number":…}`.
+ * appended to the issue; the raw log (and anything token-like in it) is not. `--report` is a
+ * Markdown file (the host-diff fragment) appended to the issue body on failure and to the PR body
+ * on success. The forge comes from GITHUB_SERVER_URL and GITHUB_REPOSITORY; the token from
+ * DSH_ALPHA_TOKEN, else GITHUB_TOKEN. The token only goes into the Authorization header; it is
+ * never printed and never part of an error message. Prints one JSON line `{"action":…,"number":…}`.
  */
 
 export type DshRunOutcome =
-  | { ok: true; version: string; branch: string }
+  | { ok: true; version: string; branch: string; report?: string }
   | {
       ok: false
       version: string
       step: 'install' | 'gate' | 'host-compat'
       runUrl: string
       npmLog?: string
+      report?: string
     }
 
 export interface Forge {
@@ -69,6 +71,17 @@ async function listOpen(forge: Forge, path: string, extra: string): Promise<Reco
   return all
 }
 
+/**
+ * Appends the host-diff markdown after a blank line. An absent or empty report leaves `text`
+ * unchanged, so the bodies written before this existed stay byte-for-byte the same.
+ */
+function appendReport(text: string, report: string | undefined): string {
+  if (report === undefined || report === '') return text
+  const body = text.endsWith('\n') ? text.slice(0, -1) : text
+  const fragment = report.endsWith('\n') ? report.slice(0, -1) : report
+  return `${body}\n\n${fragment}\n`
+}
+
 /** Issue body: the failed step and run link, plus the npm conflict summary when install captured a log. */
 function failureText(outcome: Extract<DshRunOutcome, { ok: false }>): string {
   const lines = [`失败的步骤：${outcome.step}`, '', `运行：${outcome.runUrl}`]
@@ -77,7 +90,7 @@ function failureText(outcome: Extract<DshRunOutcome, { ok: false }>): string {
     lines.push('', summary)
     for (const conflict of conflicts) lines.push(`- ${conflict.package}: ${conflict.versions.join(', ')}`)
   }
-  return `${lines.join('\n')}\n`
+  return appendReport(`${lines.join('\n')}\n`, outcome.report)
 }
 
 async function reportFailure(
@@ -108,7 +121,10 @@ async function reportPass(
     head: outcome.branch,
     base: 'main',
     title: `升级到 dsh ${outcome.version}`,
-    body: `dsh ${outcome.version} 的门禁（npm run gate）与 host-compat 检查均已通过，依赖与 lockfile 已更新。\n\n由 dsh-alpha 工作流自动生成。\n`,
+    body: appendReport(
+      `dsh ${outcome.version} 的门禁（npm run gate）与 host-compat 检查均已通过，依赖与 lockfile 已更新。\n\n由 dsh-alpha 工作流自动生成。\n`,
+      outcome.report,
+    ),
   })) as { number: number }
   return { action: 'pr-created', number: created.number }
 }
@@ -121,52 +137,69 @@ export async function reportRun(
 }
 
 const USAGE =
-  'usage: node scripts/dsh-report.ts --pass <version> | --fail <install|gate|host-compat> <version> <run-url> [--npm-log <path>]'
+  'usage: node scripts/dsh-report.ts --pass <version> [--report <path>] | --fail <install|gate|host-compat> <version> <run-url> [--npm-log <path>] [--report <path>]'
 
 interface Parsed {
   outcome: DshRunOutcome
   npmLogPath?: string
+  reportPath?: string
 }
 
-/** Pulls an optional `--npm-log <path>` out of the argv, leaving the original --pass / --fail form. */
-function splitNpmLog(args: string[]): { rest: string[]; npmLogPath?: string } | null {
+/** Pulls optional `--npm-log` / `--report` paths out of the argv, leaving the original --pass / --fail form. */
+function splitOptions(args: string[]): { rest: string[]; npmLogPath?: string; reportPath?: string } | null {
   const rest: string[] = []
   let npmLogPath: string | undefined
+  let reportPath: string | undefined
   for (let index = 0; index < args.length; index++) {
     const arg = args[index]
-    if (arg !== '--npm-log') {
+    if (arg !== '--npm-log' && arg !== '--report') {
       if (arg !== undefined) rest.push(arg)
       continue
     }
     const path = args[index + 1]
-    if (path === undefined || path === '' || path.startsWith('--') || npmLogPath !== undefined) return null
-    npmLogPath = path
+    const duplicate = arg === '--npm-log' ? npmLogPath !== undefined : reportPath !== undefined
+    if (path === undefined || path === '' || path.startsWith('--') || duplicate) return null
+    if (arg === '--npm-log') npmLogPath = path
+    else reportPath = path
     index += 1
   }
-  return { rest, ...(npmLogPath === undefined ? {} : { npmLogPath }) }
+  return {
+    rest,
+    ...(npmLogPath === undefined ? {} : { npmLogPath }),
+    ...(reportPath === undefined ? {} : { reportPath }),
+  }
 }
 
 function parseArgs(args: string[]): Parsed | null {
-  const split = splitNpmLog(args)
+  const split = splitOptions(args)
   if (split === null) return null
-  const { rest, npmLogPath } = split
+  const { rest, npmLogPath, reportPath } = split
+  const paths = {
+    ...(npmLogPath === undefined ? {} : { npmLogPath }),
+    ...(reportPath === undefined ? {} : { reportPath }),
+  }
   const [mode, first, second, third] = rest
   if (mode === '--pass' && first !== undefined && first !== '' && rest.length === 2 && npmLogPath === undefined) {
-    return { outcome: { ok: true, version: first, branch: `dsh-alpha/${first}` } }
+    return { outcome: { ok: true, version: first, branch: `dsh-alpha/${first}` }, ...paths }
   }
   const step = STEPS.find((candidate) => candidate === first)
   if (mode === '--fail' && step !== undefined && second && third && rest.length === 4) {
-    return {
-      outcome: { ok: false, version: second, step, runUrl: third },
-      ...(npmLogPath === undefined ? {} : { npmLogPath }),
-    }
+    return { outcome: { ok: false, version: second, step, runUrl: third }, ...paths }
   }
   return null
 }
 
-function withNpmLog(parsed: Parsed): DshRunOutcome {
-  if (parsed.npmLogPath === undefined || parsed.outcome.ok) return parsed.outcome
-  return { ...parsed.outcome, npmLog: readFileSync(parsed.npmLogPath, 'utf8') }
+/** Reads `--npm-log` (install failures only) and `--report` onto the outcome. */
+function withFiles(parsed: Parsed): DshRunOutcome {
+  const report = parsed.reportPath === undefined ? undefined : readFileSync(parsed.reportPath, 'utf8')
+  const npmLog =
+    parsed.npmLogPath === undefined || parsed.outcome.ok ? undefined : readFileSync(parsed.npmLogPath, 'utf8')
+  if (parsed.outcome.ok) return report === undefined ? parsed.outcome : { ...parsed.outcome, report }
+  return {
+    ...parsed.outcome,
+    ...(npmLog === undefined ? {} : { npmLog }),
+    ...(report === undefined ? {} : { report }),
+  }
 }
 
 async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<number> {
@@ -183,7 +216,7 @@ async function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<number> {
     return 2
   }
   try {
-    console.log(JSON.stringify(await reportRun(withNpmLog(parsed), { baseUrl, repo, token, fetch })))
+    console.log(JSON.stringify(await reportRun(withFiles(parsed), { baseUrl, repo, token, fetch })))
     return 0
   } catch (error) {
     console.error(`dsh-report: ${messageOf(error)}`)
