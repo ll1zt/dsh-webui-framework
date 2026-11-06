@@ -106,43 +106,46 @@ afterEach(() => {
 })
 
 describe('checkContractLock on the repository', () => {
-  it('A1 A4 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.3.4 and the contract hash', () => {
+  it('A1 A4 A10 returns no problem: lock, package.json and CHANGELOG.md agree on 0.4.0 and the contract hash', () => {
     expect(checkContractLock(ROOT)).toEqual([])
 
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
-    expect(manifest.version).toBe('0.3.4')
+    expect(manifest.version).toBe('0.4.0')
     const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
       version: string
       packages: { '': { version: string } }
     }
-    expect(lockfile.version).toBe('0.3.4')
-    expect(lockfile.packages[''].version).toBe('0.3.4')
+    expect(lockfile.version).toBe('0.4.0')
+    expect(lockfile.packages[''].version).toBe('0.4.0')
     expect(read(join(ROOT, 'CHANGELOG.md'))).toMatch(/^## 0\.3\.1\b/m)
     expect(JSON.parse(read(join(ROOT, 'contract/lock.json')))).toEqual({
-      version: '0.3.4',
+      version: '0.4.0',
       sha256: contractHash(ROOT),
     })
   })
 
-  it('A5 package.json, package-lock.json and contract/lock.json are 0.3.4 and CHANGELOG calls the change additive and compatible', () => {
+  it('A6 package.json, package-lock.json, contract/lock.json and WEBUI_CONTRACT_VERSION are 0.4.0 and the 0.4.0 changelog says the change is incompatible', async () => {
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
-    expect(manifest.version).toBe('0.3.4')
+    expect(manifest.version).toBe('0.4.0')
     const lockfile = JSON.parse(read(join(ROOT, 'package-lock.json'))) as {
       version: string
       packages: { '': { version: string } }
     }
-    expect(lockfile.version).toBe('0.3.4')
-    expect(lockfile.packages[''].version).toBe('0.3.4')
+    expect(lockfile.version).toBe('0.4.0')
+    expect(lockfile.packages[''].version).toBe('0.4.0')
     const contractLock = JSON.parse(read(join(ROOT, 'contract/lock.json'))) as { version: string }
-    expect(contractLock.version).toBe('0.3.4')
+    expect(contractLock.version).toBe('0.4.0')
 
-    const section = changelogSection(read(join(ROOT, 'CHANGELOG.md')), '0.3.4')
-    expect(section, '## 0.3.4 heading').toBeDefined()
-    const text = section ?? ''
-    // "incompatible" is not the word "compatible"; a negated phrase is not either.
-    expect(text).toMatch(/\badditive\b/i)
-    expect(text).toMatch(/\bcompatible\b/i)
-    expect(text).not.toMatch(/\bnot\b(?:[\s-]+[\w-]+){0,5}[\s-]+compatible\b/i)
+    const { WEBUI_CONTRACT_VERSION } = await import('../src/lib/contract-version.ts')
+    expect(WEBUI_CONTRACT_VERSION).toBe('0.4.0')
+    expect(WEBUI_CONTRACT_VERSION).toBe(manifest.version)
+    expect(WEBUI_CONTRACT_VERSION).toBe(contractLock.version)
+
+    const section = changelogSection(read(join(ROOT, 'CHANGELOG.md')), '0.4.0')
+    expect(section, '## 0.4.0 heading').toBeDefined()
+    const body = (section ?? '').split(/\r?\n/).slice(1).join('\n').trim()
+    const firstSentence = body.match(/^[\s\S]*?[.。!！]/)?.[0] ?? body
+    expect(firstSentence).toMatch(/incompatible|不兼容/i)
   })
 })
 
@@ -175,14 +178,14 @@ describe('contract version', () => {
     const service: WebuiLayoutService = ctx.webuiLayout
     expect(layout.contractVersion).toBe(manifest.version)
     expect(service.contractVersion).toBe(manifest.version)
-    expect(manifest.version).toBe('0.3.4')
+    expect(manifest.version).toBe('0.4.0')
   })
 
   it('A2 WEBUI_CONTRACT_VERSION equals package.json and contract/lock.json', async () => {
     const { WEBUI_CONTRACT_VERSION } = await import('../src/lib/contract-version.ts')
     const manifest = JSON.parse(read(join(ROOT, 'package.json'))) as { version: string }
     const contractLock = JSON.parse(read(join(ROOT, 'contract/lock.json'))) as { version: string }
-    expect(WEBUI_CONTRACT_VERSION).toBe('0.3.4')
+    expect(WEBUI_CONTRACT_VERSION).toBe('0.4.0')
     expect(WEBUI_CONTRACT_VERSION).toBe(manifest.version)
     expect(WEBUI_CONTRACT_VERSION).toBe(contractLock.version)
   })

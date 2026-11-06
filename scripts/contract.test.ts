@@ -71,6 +71,7 @@ const sessionContract = [
   `  BlockComponentOf,`,
   `  BlockInstanceProps,`,
   `  RootBlockMeta,`,
+  `  SessionActionResult,`,
   `  SessionBlockMeta,`,
   `  SessionBlockProps,`,
   `  WebuiSession,`,
@@ -94,8 +95,8 @@ const sessionContract = [
   `  (state) => [state.running],`,
   `  (left, right) => left[0] === right[0],`,
   `)`,
-  `const ok: Promise<boolean> = session.send('x')`,
-  `const stopped: Promise<boolean> = session.stop()`,
+  `const sent: Promise<SessionActionResult> = session.send('x')`,
+  `const stopped: Promise<SessionActionResult> = session.stop()`,
   `const sessionId: string = session.sessionId`,
   `const rootMeta: RootBlockMeta = {`,
   `  id: 'root', scope: 'root', priority: 1, title: { en: 'Root' }, closable: true, multiInstance: false,`,
@@ -107,7 +108,7 @@ const sessionContract = [
   `const rootView: ComponentType<BlockInstanceProps> = () => null`,
   `const sessionComp: BlockComponentOf<SessionBlockMeta> = sessionView`,
   `const rootComp: BlockComponentOf<RootBlockMeta> = rootView`,
-  `export { cold, loading, opened, failed, running, flags, ok, stopped, rootMeta, sessionMeta, sessionComp, rootComp, rootView }`,
+  `export { cold, loading, opened, failed, running, flags, sent, stopped, rootMeta, sessionMeta, sessionComp, rootComp, rootView }`,
 ].join('\n')
 
 const closedOpenState = [
@@ -137,6 +138,45 @@ const registerCall = (meta: string, component: 'sessionView' | 'rootView'): stri
 const blockLiteral = (scope: 'root' | 'session'): string =>
   `{ id: 'demo', scope: '${scope}', priority: 1, title: { en: 'Demo' }, closable: true, multiInstance: false }`
 
+/** send and stop return SessionActionResult. The two Promise<boolean> lines are the only errors. */
+const sessionActionLines = [
+  `import type { SessionActionRejection, SessionActionResult, WebuiSession } from '${CONTRACT}'`,
+  `declare const session: WebuiSession`,
+  `type Exactly = 'host-refused' | 'no-session' | 'unmounted' | 'blank-text'`,
+  `type RejectionMatches = [SessionActionRejection] extends [Exactly]`,
+  `  ? [Exactly] extends [SessionActionRejection]`,
+  `    ? true`,
+  `    : false`,
+  `  : false`,
+  `const rejectionMatches: RejectionMatches = true`,
+  `void rejectionMatches`,
+  `export async function readResults(): Promise<void> {`,
+  `  const sent: SessionActionResult = await session.send('x')`,
+  `  const stopped: SessionActionResult = await session.stop()`,
+  `  if (sent.ok) {`,
+  `    const accepted: { readonly ok: true } = sent`,
+  `    void accepted`,
+  `  } else {`,
+  `    const rejected: { readonly ok: false; readonly reason: SessionActionRejection } = sent`,
+  `    void rejected.reason`,
+  `  }`,
+  `  if (stopped.ok) {`,
+  `    const accepted: { readonly ok: true } = stopped`,
+  `    void accepted`,
+  `  } else {`,
+  `    const rejected: { readonly ok: false; readonly reason: SessionActionRejection } = stopped`,
+  `    void rejected.reason`,
+  `  }`,
+  `}`,
+  `const badSend: Promise<boolean> = session.send('x')`,
+  `const badStop: Promise<boolean> = session.stop()`,
+  `void badSend`,
+  `void badStop`,
+]
+
+const badSendLine = sessionActionLines.findIndex((line) => line.startsWith('const badSend:'))
+const badStopLine = sessionActionLines.findIndex((line) => line.startsWith('const badStop:'))
+
 const SNIPPETS: Record<string, string> = {
   ok: fixture('ok.fixture.txt'),
   badScope: fixture('ok.fixture.txt').replace("scope: 'root'", "scope: 'global'"),
@@ -151,6 +191,7 @@ const SNIPPETS: Record<string, string> = {
   rootOnSession: registerCall(blockLiteral('root'), 'sessionView'),
   unionOnSession: registerCall('meta', 'sessionView'),
   unionOnRoot: registerCall('meta', 'rootView'),
+  sessionAction: sessionActionLines.join('\n'),
   openPlacement: [
     `import type { BlockInstanceProps, BlockTarget } from '${CONTRACT}'`,
     `declare const props: BlockInstanceProps`,
@@ -228,6 +269,26 @@ describe('type-only contract', () => {
 
   it('A1 a type-only snippet uses WebuiSessionState, WebuiSession, SessionBlockProps, RootBlockMeta, SessionBlockMeta and BlockComponentOf', () => {
     expect(describeAll(diagnostics.sessionContract ?? [])).toEqual([])
+  }, 60_000)
+
+  it('A1 send and stop return SessionActionResult, so assigning Promise<boolean> fails and ok narrows to the reason', () => {
+    const found = diagnostics.sessionAction ?? []
+    const lineOf = (diagnostic: ts.Diagnostic): number =>
+      diagnostic.file !== undefined && diagnostic.start !== undefined
+        ? diagnostic.file.getLineAndCharacterOfPosition(diagnostic.start).line
+        : -1
+    const describeOne = (diagnostic: ts.Diagnostic): string =>
+      `L${lineOf(diagnostic) + 1} TS${diagnostic.code}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n')}`
+    const badLines = new Set([badSendLine, badStopLine])
+    expect(badSendLine).toBeGreaterThanOrEqual(0)
+    expect(badStopLine).toBeGreaterThanOrEqual(0)
+    const elsewhere = found.filter((diagnostic) => !badLines.has(lineOf(diagnostic)))
+    expect(elsewhere.map(describeOne)).toEqual([])
+    for (const line of badLines) {
+      const codes = found.filter((diagnostic) => lineOf(diagnostic) === line).map((diagnostic) => diagnostic.code)
+      expect(codes, `line ${line + 1} codes ${codes.join(',')}`).toContain(TYPE_MISMATCH)
+    }
+    expect(found.map((diagnostic) => diagnostic.code)).not.toContain(CANNOT_FIND_MODULE)
   }, 60_000)
 
   it('A1 openState closed is rejected with TS2322', () => {
