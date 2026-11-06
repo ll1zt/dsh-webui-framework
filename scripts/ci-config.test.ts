@@ -119,7 +119,7 @@ describe('dsh-alpha 工作流', () => {
     expect(version?.required ?? false).toBe(false)
   })
 
-  it('A5 steps run bump, install, gate, host-compat, then push and report in that order', () => {
+  it('A4 A5 steps run bump, install, gate, host-compat, then push and report in that order', () => {
     const { indexOf } = loadAlpha()
     const bump = indexOf('scripts/dsh-bump.ts')
     const install = indexOf('npm install')
@@ -133,6 +133,36 @@ describe('dsh-alpha 工作流', () => {
     expect(gate).toBeLessThan(compat)
     expect(compat).toBeLessThan(push)
     expect(push).toBeLessThanOrEqual(report)
+  })
+
+  it('A3 dsh-alpha install runs one npm install, does not delete the lockfile, and notes the prune', () => {
+    const { text, steps, indexOf } = loadAlpha()
+    const bump = indexOf('scripts/dsh-bump.ts')
+    const install = steps.findIndex((step) => step.name === 'npm install')
+    const gate = indexOf('npm run gate')
+    expect(bump).toBeGreaterThanOrEqual(0)
+    expect(install).toBeGreaterThan(bump)
+    expect(gate).toBeGreaterThan(install)
+
+    const run = steps[install]?.run ?? ''
+    expect(run.match(/npm install/g)).toEqual(['npm install'])
+    expect(run).toContain('npm install --include=dev --ignore-scripts')
+    expect(run).not.toMatch(/\brm\b/)
+    expect(run).not.toContain('package-lock.json')
+    // Prune happens in the bump, so the workflow has to pass --write or the lock is never trimmed.
+    expect(steps[bump]?.run ?? '').toContain('--write')
+
+    const at = text.indexOf('- name: npm install')
+    const gateAt = text.indexOf('- name: gate', at)
+    expect(at).toBeGreaterThanOrEqual(0)
+    expect(gateAt).toBeGreaterThan(at)
+    const regionStart = text.lastIndexOf('\n\n', at)
+    expect(regionStart).toBeGreaterThanOrEqual(0)
+    const region = text.slice(regionStart, gateAt)
+    expect(region).toContain('npm install')
+    // The bump step owns "没有新版本"; this slice is only the install step and the comment above it.
+    expect(region).not.toContain('没有新版本')
+    expect(region).toMatch(/prune|裁剪|@deepseek-ai|删掉|删除/i)
   })
 
   it('A5 a failed install, gate or host-compat step is reported by a failure() step that calls dsh-report', () => {
