@@ -21,13 +21,13 @@ const isRow = (entry: PatchEntry): boolean => !('insert' in entry)
 const sorted = (values: readonly string[]): string[] => [...values].sort()
 
 describe('cordis.patch.yml', () => {
-  it('A1 disables exactly the 47 official rows', () => {
+  it('A1 disables exactly the 49 official rows', () => {
     const entries = readPatch()
     expect(Array.isArray(entries)).toBe(true)
-    expect(entries).toHaveLength(48)
+    expect(entries).toHaveLength(50)
 
     const rows = entries.filter(isRow)
-    expect(rows).toHaveLength(47)
+    expect(rows).toHaveLength(49)
     for (const row of rows) {
       expect(sorted(Object.keys(row))).toEqual(['disabled', 'id'])
       expect(typeof row.id).toBe('string')
@@ -35,7 +35,9 @@ describe('cordis.patch.yml', () => {
     }
 
     const ids = rows.map((row) => row.id as string)
-    expect(new Set(ids).size).toBe(47)
+    expect(new Set(ids).size).toBe(49)
+    expect(ids).toContain('ui-account-notifications')
+    expect(ids).toContain('ui-agent-team')
   })
 
   it('A2 ends with one insert row of webui-framework', () => {
