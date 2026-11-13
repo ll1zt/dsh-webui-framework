@@ -60,14 +60,14 @@ describe('compareHostRows', () => {
 })
 
 describe('installed @deepseek-ai/dsh-web-app', () => {
-  it('A3 matches the ids this repo disables and the ones scripts/host-compat.json keeps', () => {
+  it('A2 matches the 49 ids this repo disables and the ones scripts/host-compat.json keeps', () => {
     const hostRows = hostRowIds(read(join(ROOT, 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml')))
     const patch = parse(read(join(ROOT, 'cordis.patch.yml'))) as { id?: string; disabled?: boolean }[]
     const disabled = patch.filter((entry) => entry.disabled === true).map((entry) => entry.id as string)
     const compat = JSON.parse(read(join(ROOT, 'scripts/host-compat.json'))) as HostCompatFile
 
     expect(hostRows.length).toBeGreaterThan(0)
-    expect(disabled).toHaveLength(47)
+    expect(disabled).toHaveLength(49)
     expect(compareHostRows(hostRows, disabled, compat)).toEqual({ missing: [], unlisted: [] })
   })
 })

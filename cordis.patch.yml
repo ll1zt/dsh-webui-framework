@@ -1,4 +1,4 @@
-# 本包接管 web-app 的 UI 出口：关掉 47 个官方行后，由本框架自绘整页。
+# 本包接管 web-app 的 UI 出口：关掉 49 个官方行后，由本框架自绘整页。
 # 顺序即依赖淘汰顺序：先关提供者，再关依赖它们的级联行。
 
 # ── 接管 root（ui-layout 占 root 并提供 layout，我们顶替）
@@ -24,6 +24,7 @@
 - { id: ui-reference, disabled: true } # 缺 uiConversation
 - { id: ui-schedule, disabled: true } # 缺 uiConversation
 - { id: ui-subagent, disabled: true } # 缺 uiConversation
+- { id: ui-agent-team, disabled: true } # 缺 uiConversation；还挂在 ui-subagent 的 header actions 上
 - { id: ui-workflow-run, disabled: true } # 缺 uiConversation
 - { id: entry-customization, disabled: true } # 缺 uiWorkspace
 - { id: ui-secret-mask, disabled: true } # 缺 uiConversation
@@ -54,6 +55,7 @@
 - { id: ui-settings-general, disabled: true } # 自建设置分页
 - { id: ui-settings-models, disabled: true } # 自建设置分页
 - { id: ui-settings-account, disabled: true } # 自建设置分页
+- { id: ui-account-notifications, disabled: true } # 缺 settings.launcher.notifications（ui-settings-account 已关闭）
 - { id: ui-settings-plugins, disabled: true } # 自建设置分页
 - { id: ui-settings-plugin-inventory, disabled: true } # 自建设置分页
 - { id: ui-settings-session-log, disabled: true } # 自建设置分页
