@@ -1,8 +1,9 @@
+import type { Context } from '@deepseek-ai/cordis'
 import type { BlockMeta } from '@lllzt/dsh-webui-framework/contract'
 import { describe, expect, it } from 'vitest'
 import { createFakeContext, type FakeContext, type FakeSlots } from '../../test/fake-ctx.ts'
 import * as entry from '../index.ts'
-import { dockOf } from '../services/dock-state.ts'
+import { createDock } from '../services/dock-state.ts'
 import { sessionInjectFor, stateSourceOf } from '../services/session-adapter.ts'
 import { WEBUI_SLOT_KEYS } from '../types.ts'
 import { FEATURES } from './index.ts'
@@ -72,10 +73,11 @@ describe('session feature', () => {
     const sessions = sessionsFor(binding, 's1')
     const ctx = createFakeContext({ sessions, fiber: { name: 'alpha' } })
     ctx.slots.declare(WEBUI_SLOT_KEYS.session)
-    ctx.plugin(session)
+    const dock = createDock()
+    ctx.plugin({ name: session.name, inject: session.inject, apply: (sub: Context) => session.apply(sub, dock) })
     expect(ctx.activePlugins).toContain('session')
 
-    dockOf(ctx).registry.registerBlock(ctx, BLOCK, () => null)
+    dock.registry.registerBlock(ctx, BLOCK, () => null)
     const inject = injectOf(ctx)
     const face = inject('s1')
     const expected = sessionInjectFor(sessions)('s1')

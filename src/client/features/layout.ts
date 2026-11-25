@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import { slotDeclarationsOf, WebuiLayout, type BlockRegistry } from '../services/block-registry.ts'
-import { dockOf } from '../services/dock-state.ts'
+import type { Dock } from '../services/dock-state.ts'
 import { LAYOUT_NAMESPACE, LayoutPersistence } from '../services/layout-persistence.ts'
 import { LOG_PREFIX } from '../services/log-prefix.ts'
 import { WEBUI_SLOT_KEYS } from '../types.ts'
@@ -50,9 +50,10 @@ function provideLayout(ctx: Context, registry: BlockRegistry): void {
  * with `ctx.inject`, never listed in the feature's `inject`, so the page starts without them and the layout then
  * stays in memory.
  * @param ctx - client root context.
+ * @param dock - shared dock for this page.
  */
-function apply(ctx: Context): void {
-  const { registry, controller } = dockOf(ctx)
+function apply(ctx: Context, dock: Dock): void {
+  const { registry, controller } = dock
   provideLayout(ctx, registry)
 
   ctx.inject(['configForms'], (ctx) => {

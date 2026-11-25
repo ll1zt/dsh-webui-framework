@@ -5,7 +5,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import en from '../../../locale/en.json'
 import zh from '../../../locale/zh.json'
 import { App, type AppInject } from '../entries/App.tsx'
-import { dockOf } from '../services/dock-state.ts'
+import type { Dock } from '../services/dock-state.ts'
 import { SHELL_OVERLAY_KEY, WEBUI_SLOT_KEYS } from '../types.ts'
 import type { WebuiFeature } from './index.ts'
 
@@ -16,9 +16,10 @@ import type { WebuiFeature } from './index.ts'
  * The seat is registered before this feature returns, so the block lists and the overlay list are declared by the time
  * anything else can look at the slots.
  * @param ctx - client root context.
+ * @param dock - shared dock for this page.
  */
-function apply(ctx: Context): void {
-  const { registry, controller, errors } = dockOf(ctx)
+function apply(ctx: Context, dock: Dock): void {
+  const { registry, controller, errors } = dock
   ctx.effect(() => ctx.locale.register('webui', { zh, en }), 'webui: dictionaries')
   ctx.effect(
     () => ctx.slots.onEntryError((key, registration, error, info) => errors.record(key, registration, error, info)),

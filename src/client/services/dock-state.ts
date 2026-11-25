@@ -1,29 +1,22 @@
-/** The one registry and controller of a page, shared by the layout feature and the shell feature. */
-import type { Context } from '@deepseek-ai/cordis'
+/** The one registry, controller, and error tracker of a page, shared across its client features. */
 import { BlockRegistry } from './block-registry.ts'
 import { EntryErrorTracker } from './entry-errors.ts'
 import { LayoutController } from './layout-controller.ts'
 
-interface Dock {
+/** Per-page dock state created at the client entry and handed to each feature sub-plugin. */
+export interface Dock {
   registry: BlockRegistry
   controller: LayoutController
   errors: EntryErrorTracker
 }
 
-const docks = new WeakMap<object, Dock>()
-
 /**
- * The page's registry and the controller over it. Features load as separate plugins, so they meet
- * here, keyed by the root context, instead of through a service the shell would have to wait for.
- * @param ctx - any context of the page.
- * @returns the dock, created on first use.
+ * Create a fresh, isolated dock for one page. Features load as separate sub-plugins and meet here
+ * through the instance passed by the client entry instead of through a service the shell would have
+ * to wait for.
+ * @returns a new dock with its own registry, layout controller, and error tracker.
  */
-export function dockOf(ctx: Context): Dock {
-  let dock = docks.get(ctx.root)
-  if (dock === undefined) {
-    const registry = new BlockRegistry()
-    dock = { registry, controller: new LayoutController(registry), errors: new EntryErrorTracker() }
-    docks.set(ctx.root, dock)
-  }
-  return dock
+export function createDock(): Dock {
+  const registry = new BlockRegistry()
+  return { registry, controller: new LayoutController(registry), errors: new EntryErrorTracker() }
 }

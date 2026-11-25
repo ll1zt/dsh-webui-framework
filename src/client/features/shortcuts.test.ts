@@ -7,7 +7,7 @@ import en from '../../../locale/en.json'
 import zh from '../../../locale/zh.json'
 import { LAYOUT_COMMAND_IDS } from '../../lib/layout-commands.ts'
 import { createFakeContext, type FakeContext } from '../../test/fake-ctx.ts'
-import { dockOf } from '../services/dock-state.ts'
+import { createDock } from '../services/dock-state.ts'
 import { LOG_PREFIX } from '../services/log-prefix.ts'
 import { shortcuts } from './shortcuts.ts'
 
@@ -49,7 +49,8 @@ async function setup(layout: WebuiLayout | null, closable: Record<string, boolea
   await host.plugin({ name: 'alpha', apply: (owner: Context) => void owners.push(owner) })
   const owner = owners[0]
   if (owner === undefined) throw new Error('contributor alpha did not start')
-  const { controller, registry } = dockOf(ctx)
+  const dock = createDock()
+  const { controller, registry } = dock
   for (const id of ['a', 'b', 'c', 'd']) {
     const meta: BlockMeta = {
       id,
@@ -62,7 +63,11 @@ async function setup(layout: WebuiLayout | null, closable: Record<string, boolea
     registry.registerBlock(owner, meta, () => null)
   }
   controller.replaceLayout(layout ?? { version: 1, root: null, activePane: [] }, true)
-  ctx.plugin(shortcuts)
+  ctx.plugin({
+    name: shortcuts.name,
+    inject: shortcuts.inject,
+    apply: (sub: Context) => shortcuts.apply(sub, dock),
+  })
   const command = (id: string): ShortcutCommand => {
     const found = service.commands.find((candidate) => candidate.id === id)
     if (found === undefined) throw new Error(`${id} was not registered`)
@@ -130,7 +135,12 @@ describe('shortcuts feature', () => {
       shortcuts: fakeShortcuts(),
       locale: { bind: () => (key: string) => (en as Record<string, string>)[key] ?? key },
     })
-    english.plugin(shortcuts)
+    const englishDock = createDock()
+    english.plugin({
+      name: shortcuts.name,
+      inject: shortcuts.inject,
+      apply: (sub: Context) => shortcuts.apply(sub, englishDock),
+    })
     const labels = (english.shortcuts as unknown as ReturnType<typeof fakeShortcuts>).commands.map((command) =>
       command.label(),
     )
@@ -260,7 +270,14 @@ describe('shortcuts feature', () => {
   it('A6 without a shortcuts service nothing is registered and nothing throws', () => {
     const warn = vi.spyOn(console, 'warn')
     const ctx = createFakeContext()
-    expect(() => ctx.plugin(shortcuts)).not.toThrow()
+    const dock = createDock()
+    expect(() =>
+      ctx.plugin({
+        name: shortcuts.name,
+        inject: shortcuts.inject,
+        apply: (sub: Context) => shortcuts.apply(sub, dock),
+      }),
+    ).not.toThrow()
     expect(ctx.activePlugins).toContain('shortcuts')
     expect(warn).not.toHaveBeenCalled()
     ctx.disposeAll()

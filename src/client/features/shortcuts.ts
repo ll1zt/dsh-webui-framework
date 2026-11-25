@@ -10,7 +10,7 @@ import type {
 import type { ShortcutProfile } from '@deepseek-ai/dsh-client-shortcuts/protocol'
 import { LAYOUT_COMMAND_IDS, planLayoutCommand, type LayoutCommandId } from '../../lib/layout-commands.ts'
 import { focusActiveTab, panePathOfElement } from '../../ui/shell/pane-dom.ts'
-import { dockOf } from '../services/dock-state.ts'
+import type { Dock } from '../services/dock-state.ts'
 import type { LayoutController } from '../services/layout-controller.ts'
 import { LOG_PREFIX } from '../services/log-prefix.ts'
 import type { WebuiTranslate } from '../types.ts'
@@ -105,9 +105,10 @@ function commandOf(id: LayoutCommandId, controller: LayoutController, label: () 
  * `ctx.inject`, never listed in the feature's `inject`, so without it the page starts and no command exists. A
  * command the service refuses (duplicate id, clashing default key) is warned about and skipped.
  * @param ctx - client root context.
+ * @param dock - shared dock for this page.
  */
-function apply(ctx: Context): void {
-  const { controller } = dockOf(ctx)
+function apply(ctx: Context, dock: Dock): void {
+  const { controller } = dock
   const t = ctx.locale.bind('webui')
 
   ctx.inject(['shortcuts'], (ctx) => {

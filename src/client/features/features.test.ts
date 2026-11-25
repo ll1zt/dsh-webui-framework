@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createFakeContext, type FakeSlots } from '../../test/fake-ctx.ts'
 import * as entry from '../index.ts'
+import { createDock, type Dock } from '../services/dock-state.ts'
 import { FEATURES, type WebuiFeature } from './index.ts'
 
 function featureNamed(name: string): WebuiFeature {
@@ -11,14 +12,26 @@ function featureNamed(name: string): WebuiFeature {
   return feature
 }
 
+function pluginOf(name: string, dock: Dock) {
+  const feature = featureNamed(name)
+  return { name: feature.name, inject: feature.inject, apply: (ctx: Context) => feature.apply(ctx, dock) }
+}
+
 describe('FEATURES', () => {
   it('A1 apply calls ctx.plugin exactly once per feature and the entry module exports no inject', () => {
-    const plugged: unknown[] = []
-    const ctx = createFakeContext({ plugin: (feature: unknown) => void plugged.push(feature) })
+    const plugged: { name?: string; inject?: readonly string[]; apply?: unknown }[] = []
+    const ctx = createFakeContext({
+      plugin: (feature: { name?: string; inject?: readonly string[]; apply?: unknown }) => void plugged.push(feature),
+    })
     entry.apply(ctx)
 
     expect(plugged).toHaveLength(FEATURES.length)
-    for (const feature of FEATURES) expect(plugged.filter((candidate) => candidate === feature)).toHaveLength(1)
+    for (const feature of FEATURES) {
+      const matches = plugged.filter((candidate) => candidate.name === feature.name)
+      expect(matches).toHaveLength(1)
+      expect(matches[0]?.inject).toEqual(feature.inject)
+      expect(typeof matches[0]?.apply).toBe('function')
+    }
     expect('inject' in entry).toBe(false)
     ctx.disposeAll()
   })
@@ -65,7 +78,7 @@ describe('webuiLayout without the layout feature', () => {
     const started = vi.fn()
 
     const waiting = root.inject(['webuiLayout'], started)
-    await root.plugin(featureNamed('shell'))
+    await root.plugin(pluginOf('shell', createDock()))
 
     expect(started).not.toHaveBeenCalled()
     expect(fake.slots.entries('root')).toHaveLength(1)
@@ -87,7 +100,7 @@ describe('webuiLayout waits for the block slots', () => {
 
   it('A3 the layout feature provides webuiLayout only after the block slots are declared', async () => {
     const { fake, root } = host()
-    await root.plugin(featureNamed('layout'))
+    await root.plugin(pluginOf('layout', createDock()))
 
     // A counter, not a spy: an assertion failure must not print a cordis context.
     let starts = 0
@@ -103,8 +116,9 @@ describe('webuiLayout waits for the block slots', () => {
 
   it('A3 with the shell applied first webuiLayout is provided without a further declaration', async () => {
     const { root } = host()
-    await root.plugin(featureNamed('shell'))
-    await root.plugin(featureNamed('layout'))
+    const dock = createDock()
+    await root.plugin(pluginOf('shell', dock))
+    await root.plugin(pluginOf('layout', dock))
 
     let starts = 0
     root.inject(['webuiLayout'], () => void (starts += 1))
@@ -120,8 +134,9 @@ describe('root registration and webuiLayout', () => {
     const root = new Context()
     root.provide('slots', fake.slots)
     root.provide('locale', fake.locale)
-    await root.plugin(featureNamed('shell'))
-    await root.plugin(featureNamed('layout'))
+    const dock = createDock()
+    await root.plugin(pluginOf('shell', dock))
+    await root.plugin(pluginOf('layout', dock))
 
     const captured: Context[] = []
     await root.plugin({ name: 'alpha', inject: ['webuiLayout'], apply: (ctx: Context) => void captured.push(ctx) })
@@ -157,8 +172,9 @@ describe('block failures through the root seat', () => {
     const root = new Context()
     root.provide('slots', fake.slots)
     root.provide('locale', fake.locale)
-    await root.plugin(featureNamed('shell'))
-    await root.plugin(featureNamed('layout'))
+    const dock = createDock()
+    await root.plugin(pluginOf('shell', dock))
+    await root.plugin(pluginOf('layout', dock))
     const captured: Context[] = []
     const fiber = await root.plugin({
       name: 'alpha',
@@ -293,8 +309,9 @@ describe('layout persistence through optional services', () => {
     root.provide('slots', fake.slots)
     root.provide('locale', fake.locale)
     provide(root)
-    await root.plugin(featureNamed('shell'))
-    await root.plugin(featureNamed('layout'))
+    const dock = createDock()
+    await root.plugin(pluginOf('shell', dock))
+    await root.plugin(pluginOf('layout', dock))
     const captured: Context[] = []
     await root.plugin({ name: 'alpha', inject: ['webuiLayout'], apply: (ctx: Context) => void captured.push(ctx) })
     for (const id of ids) captured[0]?.webuiLayout.registerBlock({ ...META, id, title: { zh: id, en: id } }, () => null)
@@ -387,7 +404,7 @@ describe('layout view through the root seat', () => {
     const root = new Context()
     root.provide('slots', fake.slots)
     root.provide('locale', fake.locale)
-    await root.plugin(featureNamed('shell'))
+    await root.plugin(pluginOf('shell', createDock()))
     const slots: FakeSlots = fake.slots
     const inject = slots.entries('root')[0]?.options.inject
     if (typeof inject !== 'function') throw new Error('the root registration has no inject factory')
