@@ -306,3 +306,108 @@ describe('dsh-alpha 工作流', () => {
     for (const line of gitAdds) expect(line).not.toContain('.host-dsh')
   })
 })
+
+/** Advance past one Nix string literal (`"..."` or `''...''`) starting at `index`. */
+function skipNixString(source: string, index: number): number {
+  if (source.startsWith("''", index)) {
+    let cursor = index + 2
+    while (cursor < source.length) {
+      if (source.startsWith("'''", cursor) || source.startsWith("''\\", cursor)) cursor += 3
+      else if (source.startsWith("''", cursor)) return cursor + 2
+      else cursor += 1
+    }
+    return cursor
+  }
+  let cursor = index + 1
+  while (cursor < source.length) {
+    if (source[cursor] === '\\') cursor += 2
+    else if (source[cursor] === '"') return cursor + 1
+    else cursor += 1
+  }
+  return cursor
+}
+
+/** Strip Nix `#` line comments and block comments while keeping string literals intact. */
+function stripNixComments(source: string): string {
+  let out = ''
+  let cursor = 0
+  while (cursor < source.length) {
+    if (source[cursor] === '"' || source.startsWith("''", cursor)) {
+      const end = skipNixString(source, cursor)
+      out += source.slice(cursor, end)
+      cursor = end
+    } else if (source[cursor] === '#') {
+      while (cursor < source.length && source[cursor] !== '\n') cursor += 1
+    } else if (source.startsWith('/*', cursor)) {
+      const end = source.indexOf('*/', cursor + 2)
+      cursor = end === -1 ? source.length : end + 2
+      out += ' '
+    } else {
+      out += source[cursor]
+      cursor += 1
+    }
+  }
+  return out
+}
+
+/** Extract the RHS expression of `name = ...;` from comment-free Nix source, ignoring string contents. */
+function nixBinding(source: string, name: string): string | undefined {
+  let cursor = 0
+  let start = -1
+  while (cursor < source.length) {
+    if (source[cursor] === '"' || source.startsWith("''", cursor)) {
+      cursor = skipNixString(source, cursor)
+      continue
+    }
+    if (source.startsWith(name, cursor)) {
+      const prev = cursor === 0 ? '' : (source[cursor - 1] ?? '')
+      if (!/[A-Za-z0-9_'.-]/.test(prev)) {
+        const eq = /^\s*=(?!=)/.exec(source.slice(cursor + name.length))
+        if (eq !== null) {
+          start = cursor + name.length + eq[0].length
+          break
+        }
+      }
+    }
+    cursor += 1
+  }
+  if (start === -1) return undefined
+
+  let depth = 0
+  let end = start
+  while (end < source.length) {
+    const ch = source[end]
+    if (ch === '"' || source.startsWith("''", end)) {
+      end = skipNixString(source, end)
+      continue
+    }
+    if (ch === '{' || ch === '(' || ch === '[') depth += 1
+    else if (ch === '}' || ch === ')' || ch === ']') {
+      if (depth === 0) break
+      depth -= 1
+    } else if (ch === ';' && depth === 0) {
+      const prefix = source.slice(start, end).trimStart()
+      if (/^with\b/.test(prefix) && !prefix.includes('[')) {
+        end += 1
+        continue
+      }
+      return source.slice(start, end)
+    }
+    end += 1
+  }
+  return undefined
+}
+
+describe('flake.nix', () => {
+  it('A1 devShells.default packages includes pnpm', () => {
+    const flake = stripNixComments(readFileSync(join(ROOT, 'flake.nix'), 'utf8'))
+    const devShells = nixBinding(flake, 'devShells')
+    expect(devShells).toBeDefined()
+    const defaultShell = nixBinding(devShells ?? '', 'default')
+    expect(defaultShell).toBeDefined()
+    const packages = nixBinding(defaultShell ?? '', 'packages')
+    expect(packages).toBeDefined()
+    expect(packages).toMatch(/\[[\s\S]*\]/)
+    expect(packages).toMatch(/(?:^|[\s[(.])pnpm(?:_[0-9]+)?(?=[\s\]).;]|$)/)
+  })
+})

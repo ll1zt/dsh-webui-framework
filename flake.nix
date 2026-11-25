@@ -69,7 +69,7 @@
 
       devShells = forAllSystems (pkgs: {
         default = pkgs.mkShell {
-          packages = [ self.packages.${pkgs.stdenv.hostPlatform.system}.nodejs-official pkgs.git ];
+          packages = [ self.packages.${pkgs.stdenv.hostPlatform.system}.nodejs-official pkgs.git pkgs.pnpm ];
 
           shellHook = ''
             echo "node: $(node --version)  npm: $(npm --version)"
