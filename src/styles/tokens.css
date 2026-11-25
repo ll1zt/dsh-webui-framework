@@ -15,7 +15,13 @@ body {
   --text-dim: var(--dsw-alias-label-tertiary);
   --accent: var(--dsw-alias-brand-primary);
   --accent-hover: color-mix(in srgb, var(--dsw-alias-brand-primary) 85%, var(--dsw-alias-label-primary));
-  --accent-contrast: var(--dsw-alias-brand-primary-invert);
+  /*
+   * Text on an accent surface. NOT `--dsw-alias-brand-primary-invert`: in the light theme that
+   * aliases the same colour as `--dsw-alias-brand-primary` (#0f1115), so accent-backed buttons
+   * rendered unreadable dark-on-dark. The inverted label ramp flips with the theme, which is what
+   * a filled accent control needs.
+   */
+  --accent-contrast: var(--dsw-alias-label-primary-inverted, #fff);
   --state-error-fg: var(--dsw-alias-state-error-primary);
   --state-error-bg: var(--dsw-alias-state-error-tertiary);
   --state-warning-fg: var(--dsw-alias-state-warn-primary);

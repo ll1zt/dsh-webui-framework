@@ -68,7 +68,7 @@ const DEEP_FREEZE_GUARDS = [
 ]
 
 export default tseslint.config(
-  { ignores: ['lib/', 'examples/*/lib/', 'node_modules/', 'ref/', 'coverage/'] },
+  { ignores: ['lib/', 'examples/*/lib/', 'node_modules/', 'ref/', 'coverage/', 'plugins/'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
