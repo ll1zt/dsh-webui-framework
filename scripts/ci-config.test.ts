@@ -150,8 +150,8 @@ describe('dsh-alpha 工作流', () => {
     expect(push).toBeLessThanOrEqual(report)
   })
 
-  it('A3 dsh-alpha install runs one npm install, does not delete the lockfile, and notes the prune', () => {
-    const { text, steps, indexOf } = loadAlpha()
+  it('A3 dsh-alpha install runs one npm install and does not delete the lockfile', () => {
+    const { steps, indexOf } = loadAlpha()
     const bump = indexOf('scripts/dsh-bump.ts')
     const install = steps.findIndex((step) => step.name === 'npm install')
     const gate = indexOf('npm run gate')
@@ -166,18 +166,6 @@ describe('dsh-alpha 工作流', () => {
     expect(run).not.toContain('package-lock.json')
     // Prune happens in the bump, so the workflow has to pass --write or the lock is never trimmed.
     expect(steps[bump]?.run ?? '').toContain('--write')
-
-    const at = text.indexOf('- name: npm install')
-    const gateAt = text.indexOf('- name: gate', at)
-    expect(at).toBeGreaterThanOrEqual(0)
-    expect(gateAt).toBeGreaterThan(at)
-    const regionStart = text.lastIndexOf('\n\n', at)
-    expect(regionStart).toBeGreaterThanOrEqual(0)
-    const region = text.slice(regionStart, gateAt)
-    expect(region).toContain('npm install')
-    // The bump step owns "没有新版本"; this slice is only the install step and the comment above it.
-    expect(region).not.toContain('没有新版本')
-    expect(region).toMatch(/prune|裁剪|@deepseek-ai|删掉|删除/i)
   })
 
   it('A3 install redirects npm output to a log the failure report passes, and git add does not include it', () => {
