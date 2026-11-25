@@ -384,8 +384,6 @@ export function createFakeContext(overrides: Record<string, unknown> = {}): Fake
     { slots, locale, reflect, effect, on, emit, plugin, inject, activePlugins, disposeAll },
     overrides,
   )
-  // A real context points at its root; this one is its own root, so features can key shared state by it.
-  Object.assign(fake, { root: fake })
   // A cordis Context is a class whose private members no plain object can mirror, so this single cast is
   // the one place the fake claims the host type; every test then calls `apply(ctx)` without casting.
   return fake as unknown as FakeContext

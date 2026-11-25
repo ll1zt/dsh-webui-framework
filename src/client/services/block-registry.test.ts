@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createFakeContext, type FakeContext, type FakeSlots } from '../../test/fake-ctx.ts'
 import { FEATURES } from '../features/index.ts'
 import { BlockRegistry, compareByPriorityThenId } from './block-registry.ts'
+import { createDock } from './dock-state.ts'
 import { LOG_PREFIX } from './log-prefix.ts'
 import type { WebuiSessionInject } from './session-adapter.ts'
 
@@ -134,7 +135,8 @@ describe('BlockRegistry registration and disposal', () => {
     const beta = contributor('beta', 10)
     expect(fake.slots.entries(ROOT_KEY)).toHaveLength(0)
 
-    await root.plugin(layout)
+    const dock = createDock()
+    await root.plugin({ name: layout.name, inject: layout.inject, apply: (ctx: Context) => layout.apply(ctx, dock) })
     await Promise.all([alpha, beta])
 
     expect(ids(fake.slots.entries(ROOT_KEY))).toEqual(['alpha-root', 'beta-root'])
