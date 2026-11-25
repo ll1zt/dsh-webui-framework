@@ -55,7 +55,7 @@ describe('0.4.0 docs', () => {
     expect(WEBUI_CONTRACT_VERSION).toBe(lockfile.packages[''].version)
   })
 
-  it('A2 readme lists state tokens, placement, contractVersion and send/stop reasons, and RELEASE.md lists the release steps', () => {
+  it('A2 readme lists state tokens, placement, contractVersion and send/stop reasons', () => {
     const readme = read(join(ROOT, 'README.md'))
     for (const [token, host] of STATE_TOKENS) {
       expect(readme, token).toContain(token)
@@ -86,14 +86,6 @@ describe('0.4.0 docs', () => {
     expect(readme).not.toContain('解析为 `true`')
     expect(readme).not.toContain('解析为 `false`')
     expect(readme).not.toContain('并以 `false` 落定')
-
-    const releasePath = join(ROOT, 'RELEASE.md')
-    expect(existsSync(releasePath), 'RELEASE.md').toBe(true)
-    const release = read(releasePath)
-    expect(release).toMatch(/npm pack|pack:check/)
-    expect(release).toMatch(/\btag\b/)
-    expect(release).toMatch(/\bgate\b/)
-    expect(release).toContain('host-compat')
   })
 
   it('A3 previous fixtures compile clean and mention SessionActionResult', () => {

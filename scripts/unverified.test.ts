@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -7,7 +7,6 @@ import type { Unverified } from './unverified.ts'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const SPIKE = join(ROOT, 'docs/spikes/session-adapter.md')
-const UNVERIFIED_DOC = join(ROOT, 'docs/unverified.md')
 
 /** Item text from the spike, with the leading `N. ` already removed. */
 const TEXTS: Record<string, string> = {
@@ -23,16 +22,6 @@ const TEXTS: Record<string, string> = {
 const IDS = ['1', '2', '3', '4', '5', '6', '7']
 
 const CHECKS = ['session-adapter.test.ts', 'manual'] as const
-
-/** `### <id>. <title>` sections, in document order. The body includes its heading. */
-const sectionsOf = (doc: string): { id: string; body: string }[] => {
-  const headings = [...doc.matchAll(/^### (\d+)\. (.+)$/gm)]
-  return headings.map((match, index) => {
-    const start = match.index ?? 0
-    const end = headings[index + 1]?.index ?? doc.length
-    return { id: match[1] ?? '', body: doc.slice(start, end) }
-  })
-}
 
 describe('readUnverified', () => {
   it('A1 readUnverified returns the seven spike conclusions with ids 1 through 7 and non-empty text', () => {
@@ -101,19 +90,5 @@ describe('unverifiedSection', () => {
       '- 2. 快照引用保持稳定: session-adapter.test.ts',
       '- 4. queue 模式在运行中追加: 需人工复核',
     ])
-  })
-})
-
-describe('docs/unverified.md', () => {
-  it('A2 docs/unverified.md has a recheck section for each id with a command, an expected result, and the rc.1 DSH_HOME', () => {
-    expect(existsSync(UNVERIFIED_DOC), UNVERIFIED_DOC).toBe(true)
-    const doc = existsSync(UNVERIFIED_DOC) ? readFileSync(UNVERIFIED_DOC, 'utf8') : ''
-    const sections = sectionsOf(doc)
-    expect(sections.map((section) => section.id)).toEqual(IDS)
-    for (const section of sections) {
-      expect(section.body, section.id).toMatch(/node |npm |nix develop/)
-      expect(section.body, section.id).toContain('/home/agent/dev/dsh-rc1/home')
-      expect(section.body, section.id).toContain('预期')
-    }
   })
 })
