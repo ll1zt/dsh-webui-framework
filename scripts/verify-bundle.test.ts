@@ -126,6 +126,10 @@ describe('built bundles', () => {
     evaluate()
     expect(win.document.querySelectorAll(selector).length).toBe(1)
   })
+
+  it('A2 built bundle carries no telemetry-api violation', () => {
+    expect(codes(checkBundleSource(read('lib/client.js')))).not.toContain('telemetry-api')
+  })
 })
 
 describe('checkBundleSource', () => {
@@ -145,6 +149,27 @@ describe('checkBundleSource', () => {
 
   it('A3 parse error', () => {
     expect(codes(checkBundleSource('var broken = ;\n'))).toContain('parse-error')
+  })
+
+  it('A1 telemetry apis', () => {
+    const forbidden: Record<string, string> = {
+      'product analytics call': 'ctx.get("productAnalytics").track("send_button_click", {});\n',
+      'telemetry env': 'var disabled = process.env.DSH_TELEMETRY_DISABLED;\n',
+      'product analytics package': 'var analytics = require("@deepseek-ai/dsh-client-product-analytics");\n',
+      'telemetry package': 'var otel = require("@deepseek-ai/dsh-host-product-telemetry-otel");\n',
+    }
+    for (const [label, source] of Object.entries(forbidden)) {
+      expect(codes(checkBundleSource(source)), label).toContain('telemetry-api')
+    }
+  })
+
+  it('A3 ordinary violations are unchanged and not telemetry-api', () => {
+    const broken = checkBundleSource('var broken = ;\n')
+    expect(codes(broken)).toContain('parse-error')
+    expect(codes(broken)).not.toContain('telemetry-api')
+    const foreign = codes(checkBundleSource('var session = require("@deepseek-ai/dsh-client-ui-session");\n'))
+    expect(foreign).toContain('foreign-require')
+    expect(foreign).not.toContain('telemetry-api')
   })
 })
 
