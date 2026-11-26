@@ -19,6 +19,7 @@ export type BundleViolationCode =
   | 'chunk-field'
   | 'no-apply'
   | 'size-budget'
+  | 'telemetry-api'
 
 export interface BundleViolation {
   code: BundleViolationCode
@@ -101,6 +102,32 @@ function requiredSpecifier(node: ts.Node): string | undefined {
   return first !== undefined && ts.isStringLiteralLike(first) ? first.text : undefined
 }
 
+/**
+ * Tokens that betray telemetry or product analytics in a client bundle: the
+ * service call, the env handling, and the package specifiers. The scan is
+ * deliberately conservative so a clean bundle never trips it.
+ */
+const TELEMETRY_PATTERNS: readonly RegExp[] = [
+  /\bproductAnalytics\b/g,
+  /\bDSH_TELEMETRY_[A-Za-z0-9_]*/g,
+  /@deepseek-ai\/[A-Za-z0-9._-]*(?:telemetry|analytics)[A-Za-z0-9._-]*/g,
+]
+
+/** Every telemetry/analytics token in `source`, as one violation naming them all. */
+function telemetryViolations(source: string): BundleViolation[] {
+  const matches = new Set<string>()
+  for (const pattern of TELEMETRY_PATTERNS) {
+    for (const match of source.matchAll(pattern)) matches.add(match[0])
+  }
+  if (matches.size === 0) return []
+  return [
+    {
+      code: 'telemetry-api',
+      detail: `the bundle references telemetry/analytics: ${[...matches].sort().join(', ')}`,
+    },
+  ]
+}
+
 /** Static half of the contract: everything a byte scan and a parse can decide. */
 function analyze(source: string): { violations: BundleViolation[]; requires: string[] } {
   const violations: BundleViolation[] = []
@@ -128,6 +155,7 @@ function analyze(source: string): { violations: BundleViolation[]; requires: str
       violations.push({ code: 'foreign-require', detail: `require("${specifier}") is not a seed module` })
     }
   })
+  violations.push(...telemetryViolations(source))
   return { violations, requires: [...requires].sort() }
 }
 
