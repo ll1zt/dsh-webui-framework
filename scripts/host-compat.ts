@@ -5,7 +5,7 @@ import { isInvokedAsScript, messageOf } from './cli-utils.ts'
 
 /**
  * Does the installed dsh-web-app's assembly table still line up with the ids this repo closes?
- * The host's `cordis.patch.yml` inserts its rows by id and this repo's patch disables 49 of them
+ * The host's `cordis.patch.yml` inserts its rows by id and this repo's patch disables 51 of them
  * by id, so a host that renames, drops or adds a row changes what the page boots with. The
  * comparison fails with the row named, instead of leaving it to a warning in `--dump-config`.
  */

@@ -2,6 +2,10 @@
 
 Every change to `contract/index.d.ts` needs a new version here, a matching `version` in `package.json` and a refreshed `contract/lock.json` (`node scripts/contract-lock.ts --write`).
 
+## Unreleased
+
+- The patch now disables the host `desktop-product-telemetry` and `product-analytics` rows, which it used to keep enabled; it disables 51 rows and ships no telemetry or analytics hook of its own.
+
 ## 0.4.0
 
 This is an incompatible change: `WebuiSession.send` and `WebuiSession.stop` return `Promise<SessionActionResult>` instead of `Promise<boolean>`, so a plugin written against the old return type fails to compile; the contract adds `SessionActionRejection` and `SessionActionResult`, and a failure maps to `blank-text` (empty text, host not called), `no-session` (the session is gone), `unmounted` (the block has no mount or has unmounted) or `host-refused` (the host returned `{ ok: false }` or threw).

@@ -1,4 +1,4 @@
-# 本包接管 web-app 的 UI 出口：关掉 49 个官方行后，由本框架自绘整页。
+# 本包接管 web-app 的 UI 出口：关掉 51 个官方行后，由本框架自绘整页。
 # 顺序即依赖淘汰顺序：先关提供者，再关依赖它们的级联行。
 
 # ── 接管 root（ui-layout 占 root 并提供 layout，我们顶替）
@@ -63,6 +63,10 @@
 - { id: ui-settings-agent-loop, disabled: true } # 自建设置分页
 - { id: ui-settings-subagent, disabled: true } # 自建设置分页
 - { id: ui-settings-web-search, disabled: true } # 自建设置分页
+
+# ── 遥测与分析（本框架不提供替代实现，直接关闭）
+- { id: desktop-product-telemetry, disabled: true } # 框架不接管宿主遥测
+- { id: product-analytics, disabled: true } # 框架不接管产品分析
 
 # ── 插入我们的行（loader id 由包名决定）
 - insert:

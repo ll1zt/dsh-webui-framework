@@ -20,6 +20,8 @@ profile 的 `dsh.profile.bundles` 需包含 `@deepseek-ai/dsh-web-app` 且排在
 ]
 ```
 
+本框架的 `cordis.patch.yml` 关闭宿主的 `desktop-product-telemetry` 与 `product-analytics` 行：框架不接管宿主的遥测与产品分析，也不提供自己的实现，这两行在 `--dump-config` 中显示为 disabled、不会启用。
+
 - 在 `0.2.2-rc.5` 上 `--dump-config` 输出 `patch: entry "ui-deepseek-model-label-1017" not found` 属预期现象，不影响运行。
 - 构建并安装示例插件：在 `examples/hello-block` 运行 `npx tsdown && npm pack`，再执行 `dsh plugin --profile <p> add ./lllzt-dsh-webui-hello-block-0.0.0.tgz`。
 
