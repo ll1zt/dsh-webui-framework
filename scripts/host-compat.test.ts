@@ -60,14 +60,20 @@ describe('compareHostRows', () => {
 })
 
 describe('installed @deepseek-ai/dsh-web-app', () => {
-  it('A2 matches the 49 ids this repo disables and the ones scripts/host-compat.json keeps', () => {
+  it('A1 keeps neither telemetry row in scripts/host-compat.json kept', () => {
+    const compat = JSON.parse(read(join(ROOT, 'scripts/host-compat.json'))) as HostCompatFile
+    expect(compat.kept).not.toContain('desktop-product-telemetry')
+    expect(compat.kept).not.toContain('product-analytics')
+  })
+
+  it('A2 matches the 51 ids this repo disables and the ones scripts/host-compat.json keeps', () => {
     const hostRows = hostRowIds(read(join(ROOT, 'node_modules/@deepseek-ai/dsh-web-app/cordis.patch.yml')))
     const patch = parse(read(join(ROOT, 'cordis.patch.yml'))) as { id?: string; disabled?: boolean }[]
     const disabled = patch.filter((entry) => entry.disabled === true).map((entry) => entry.id as string)
     const compat = JSON.parse(read(join(ROOT, 'scripts/host-compat.json'))) as HostCompatFile
 
     expect(hostRows.length).toBeGreaterThan(0)
-    expect(disabled).toHaveLength(49)
+    expect(disabled).toHaveLength(51)
     expect(compareHostRows(hostRows, disabled, compat)).toEqual({ missing: [], unlisted: [] })
   })
 })
@@ -88,5 +94,10 @@ describe('host-compat CLI', () => {
   it('A4 exits 2 when the host package is not installed', async () => {
     const result = await runCli(join(FIXTURES, 'absent'))
     expect(result.code).toBe(2)
+  })
+
+  it('A5 the installed host-compat CLI stays green', async () => {
+    const result = await runCli(ROOT)
+    expect(result.code).toBe(0)
   })
 })

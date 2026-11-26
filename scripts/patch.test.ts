@@ -21,13 +21,13 @@ const isRow = (entry: PatchEntry): boolean => !('insert' in entry)
 const sorted = (values: readonly string[]): string[] => [...values].sort()
 
 describe('cordis.patch.yml', () => {
-  it('A1 disables exactly the 49 official rows', () => {
+  it('A1 disables exactly the 51 official rows', () => {
     const entries = readPatch()
     expect(Array.isArray(entries)).toBe(true)
-    expect(entries).toHaveLength(50)
+    expect(entries).toHaveLength(52)
 
     const rows = entries.filter(isRow)
-    expect(rows).toHaveLength(49)
+    expect(rows).toHaveLength(51)
     for (const row of rows) {
       expect(sorted(Object.keys(row))).toEqual(['disabled', 'id'])
       expect(typeof row.id).toBe('string')
@@ -35,9 +35,12 @@ describe('cordis.patch.yml', () => {
     }
 
     const ids = rows.map((row) => row.id as string)
-    expect(new Set(ids).size).toBe(49)
+    expect(new Set(ids).size).toBe(51)
     expect(ids).toContain('ui-account-notifications')
     expect(ids).toContain('ui-agent-team')
+    // The framework ships no replacement for host telemetry or product analytics, so both stay off.
+    expect(ids).toContain('desktop-product-telemetry')
+    expect(ids).toContain('product-analytics')
   })
 
   it('A2 ends with one insert row of webui-framework', () => {

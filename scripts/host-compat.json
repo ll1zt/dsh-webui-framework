@@ -1,8 +1,6 @@
 {
   "hostPackage": "@deepseek-ai/dsh-web-app",
   "kept": [
-    "desktop-product-telemetry",
-    "product-analytics",
     "subagent-model-selection-settings",
     "message-feedback",
     "session-log-download",
